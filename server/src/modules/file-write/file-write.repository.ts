@@ -273,6 +273,7 @@ export class FileWriteRepository {
       comicvineId: meta.comicvineId,
       lubimyczytacId: meta.lubimyczytacId,
       aladinId: meta.aladinId,
+      yandexBooksId: meta.yandexBooksId,
       itunesId: meta.itunesId,
       audibleId: meta.audibleId,
       librofmId: meta.librofmId,

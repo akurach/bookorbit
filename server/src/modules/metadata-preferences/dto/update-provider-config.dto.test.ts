@@ -39,6 +39,14 @@ describe('UpdateProviderConfigDto', () => {
     ).resolves.toMatchObject({ librofm: { enabled: true } });
   });
 
+  it('accepts Yandex Books through production validation and rejects extra credentials', async () => {
+    const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+    const metadata = { type: 'body' as const, metatype: UpdateProviderConfigDto, data: undefined };
+    await expect(pipe.transform({ yandexBooks: { enabled: true } }, metadata)).resolves.toMatchObject({ yandexBooks: { enabled: true } });
+    await expect(pipe.transform({ yandexBooks: { enabled: 'true' } }, metadata)).rejects.toThrow();
+    await expect(pipe.transform({ yandexBooks: { token: 'unused' } }, metadata)).rejects.toThrow();
+  });
+
   it('rejects invalid nested property types', async () => {
     const { errors } = await validateInput({
       google: { enabled: 'yes' },

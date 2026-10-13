@@ -80,6 +80,7 @@ export function useProviderRows(): ComputedRef<ProviderRowDef[]> {
       },
     },
     { key: 'openLibrary', label: 'Open Library', group: 'books', hint: t('settings.metadata.providers.hints.openLibrary'), fields: [] },
+    { key: 'yandexBooks', label: 'Yandex Books', group: 'books', hint: t('settings.metadata.providers.hints.yandexBooks'), fields: [] },
     {
       key: 'itunes',
       label: 'iTunes',

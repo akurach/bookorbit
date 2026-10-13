@@ -28,6 +28,7 @@ import { MetadataSearchParams } from './metadata-search-params';
 import { OpenLibraryProvider } from './open-library/open-library.provider';
 import { RanobeDbClient } from './ranobedb/ranobedb.client';
 import { RanobeDbProvider } from './ranobedb/ranobedb.provider';
+import { YandexBooksProvider } from './yandex-books/yandex-books.provider';
 
 vi.mock('./provider-utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./provider-utils')>()),
@@ -51,6 +52,7 @@ const CONFIG: ProviderConfigurations = {
   kobo: { enabled: true, country: 'ca', language: 'fr' },
   lubimyczytac: { enabled: true },
   aladin: { enabled: true, ttbKey: 'aladin-secret' },
+  yandexBooks: { enabled: true },
 };
 
 const SECRETS = ['google-secret', 'amazon-secret', 'hardcover-secret', 'comicvine-secret', 'aladin-secret'];
@@ -84,6 +86,8 @@ function buildProvider(key: MetadataProviderKey, config: ProviderConfigurations 
       return new OpenLibraryProvider(providerConfig);
     case MetadataProviderKey.ALADIN:
       return new AladinProvider(providerConfig);
+    case MetadataProviderKey.YANDEX_BOOKS:
+      return new YandexBooksProvider(providerConfig);
     case MetadataProviderKey.RANOBEDB:
       return new RanobeDbProvider(new RanobeDbClient(), providerConfig);
     default:
@@ -162,6 +166,15 @@ const ISBN_ONLY = { isbn: '9780441172719' };
 const LOOKUP_ID = { inputs: { id: 'provider-id' }, reads: [] as Mutation[] };
 
 const CASES: DeclarationCase[] = [
+  {
+    key: MetadataProviderKey.YANDEX_BOOKS,
+    withIsbn: { ...TITLE_AUTHOR, isAudiobook: true },
+    withoutIsbn: { ...TITLE_AUTHOR, isAudiobook: true },
+    searchReads: ['isAudiobook', 'maxCandidatesPerProvider'],
+    honoursMax: true,
+    lookup: LOOKUP_ID,
+    fingerprint: {},
+  },
   {
     key: MetadataProviderKey.GOOGLE,
     withIsbn: ISBN_ONLY,
@@ -320,6 +333,7 @@ describe('provider cache declarations', () => {
         MetadataProviderKey.OPEN_LIBRARY,
         MetadataProviderKey.ALADIN,
         MetadataProviderKey.RANOBEDB,
+        MetadataProviderKey.YANDEX_BOOKS,
       ].sort(),
     );
   });
@@ -492,7 +506,9 @@ describe('provider egress ignores fields outside the cache key', () => {
     const ignored = ALL_MUTATIONS.filter((mutation) => !testCase.searchReads.includes(mutation));
 
     it.each(ignored)('sends the same search requests when %s changes', async (mutation) => {
-      for (const base of [BASE, WITHOUT_ISBN]) {
+      for (const source of [BASE, WITHOUT_ISBN]) {
+        // The ebook-only source needs an ebook request to exercise its egress.
+        const base = testCase.key === MetadataProviderKey.YANDEX_BOOKS ? { ...source, isAudiobook: false } : source;
         const expected = await outgoing(testCase.key, base, 'search');
         expect(expected.length).toBeGreaterThan(0);
         expect(await outgoing(testCase.key, MUTATIONS[mutation](base), 'search')).toEqual(expected);

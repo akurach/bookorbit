@@ -474,6 +474,7 @@ const BOOK_DOCK_PROVIDER_ID_FIELDS: Partial<Record<MetadataProviderKey, keyof Bo
   [MetadataProviderKey.RANOBEDB]: 'ranobedbId',
   [MetadataProviderKey.LUBIMYCZYTAC]: 'lubimyczytacId',
   [MetadataProviderKey.ALADIN]: 'aladinId',
+  [MetadataProviderKey.YANDEX_BOOKS]: 'yandexBooksId',
 };
 
 function resolveSupportedFormat(row: Pick<BookDockFileRow, 'format' | 'absolutePath'>): string | null {

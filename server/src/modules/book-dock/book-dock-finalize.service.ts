@@ -46,6 +46,7 @@ import { NotificationService } from '../notification/notification.service';
 import { SeriesIdentityService } from '../../common/services/series-identity.service';
 import { SeriesMembershipService } from '../../common/services/series-membership.service';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
+import { boundProviderId } from '../../common/utils/provider-id.utils';
 import { resolveExistingPathSpelling } from '../../common/utils/path-identity.utils';
 import { resolveSingleFileBookPath } from '../../common/utils/book-path.utils';
 import { normalizePublishedDate, publishedYearFromDateKey } from '../../common/utils/published-date.utils';
@@ -133,6 +134,7 @@ type NormalizedFinalizeMetadata = {
   ranobedbId: string | null;
   lubimyczytacId: string | null;
   aladinId: string | null;
+  yandexBooksId: string | null;
   seriesMemberships: MetadataSeriesMembership[] | undefined;
   communityRatings: Array<{ provider: MetadataProviderKey; rating: number; ratingCount: number | null }> | undefined;
   comicMetadata: ComicMetadataFields | undefined;
@@ -1394,6 +1396,7 @@ export class BookDockFinalizeService implements OnModuleInit, OnApplicationBoots
       ranobedbId: meta.ranobedbId,
       lubimyczytacId: meta.lubimyczytacId,
       aladinId: meta.aladinId,
+      yandexBooksId: meta.yandexBooksId,
       updatedAt: new Date(),
     };
     const patch = (await this.seriesIdentity?.resolveMetadataPatch(scalarFields)) ?? scalarFields;
@@ -1633,10 +1636,16 @@ function normalizeFinalizeMetadata(meta: BookDockMetadata | null | undefined): N
     ranobedbId: normalizeText(normalizedMeta?.ranobedbId, 50),
     lubimyczytacId: normalizeText(normalizedMeta?.lubimyczytacId, 512),
     aladinId: normalizeText(normalizedMeta?.aladinId, 20),
+    yandexBooksId: normalizeYandexBooksId(normalizedMeta?.yandexBooksId),
     seriesMemberships: normalizeSeriesMemberships(normalizedMeta?.seriesMemberships),
     communityRatings: normalizeCommunityRatings(normalizedMeta?.communityRatings),
     comicMetadata: normalizeComicMetadata(normalizedMeta?.comicMetadata),
   };
+}
+
+function normalizeYandexBooksId(value: unknown): string | null {
+  const normalized = normalizeText(value);
+  return normalized ? (boundProviderId('yandexBooksId', normalized) ?? null) : null;
 }
 
 function normalizeSeriesMemberships(value: BookDockMetadata['seriesMemberships']): MetadataSeriesMembership[] | undefined {

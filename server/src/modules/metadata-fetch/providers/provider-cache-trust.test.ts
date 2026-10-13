@@ -45,6 +45,7 @@ const CONFIG: ProviderConfigurations = {
   kobo: { enabled: false, country: 'us', language: 'en' },
   lubimyczytac: { enabled: false },
   aladin: { enabled: true, ttbKey: 'aladin-key' },
+  yandexBooks: { enabled: true },
 };
 
 const providerConfig = { getConfig: () => Promise.resolve(CONFIG) } as unknown as ProviderConfigService;

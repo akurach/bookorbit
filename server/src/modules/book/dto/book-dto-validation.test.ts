@@ -227,6 +227,12 @@ describe('Book DTO validation', () => {
     expect((await errorsFor(UpdateBookMetadataDto, { aladinId: 'a'.repeat(21) })).length).toBeGreaterThan(0);
   });
 
+  it('accepts an opaque case-sensitive Yandex Books identifier and rejects non-alphanumeric values', async () => {
+    expect((await errorsFor(UpdateBookMetadataDto, { yandexBooksId: 'AbC123Book' })).length).toBe(0);
+    expect((await errorsFor(UpdateBookMetadataDto, { yandexBooksId: null })).length).toBe(0);
+    expect((await errorsFor(UpdateBookMetadataDto, { yandexBooksId: 'book-id' })).length).toBeGreaterThan(0);
+  });
+
   it('accepts librofmId and enforces its length bound', async () => {
     expect((await errorsFor(UpdateBookMetadataDto, { librofmId: '9781234567890' })).length).toBe(0);
     expect((await errorsFor(UpdateBookMetadataDto, { librofmId: null })).length).toBe(0);

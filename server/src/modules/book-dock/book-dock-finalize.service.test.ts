@@ -1688,6 +1688,8 @@ describe('BookDockFinalizeService', () => {
           ranobedbId: 'ranobedb-id',
           lubimyczytacId: 'lubimyczytac-id',
           aladinId: 'aladin-id',
+          // An overlong opaque ID must be discarded, not sliced into a different valid ID.
+          yandexBooksId: 'A'.repeat(256),
           comicMetadata: { issueNumber: '1', pencillers: ['Artist'] },
         } as BookDockMetadata,
       }),
@@ -1712,6 +1714,7 @@ describe('BookDockFinalizeService', () => {
         ranobedbId: 'ranobedb-id',
         lubimyczytacId: 'lubimyczytac-id',
         aladinId: 'aladin-id',
+        yandexBooksId: null,
       }),
     );
     expect(seriesMemberships.replaceForBook).toHaveBeenCalledWith(19, [

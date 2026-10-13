@@ -36,6 +36,7 @@ const DEFAULT_CONFIG: ProviderConfigurations = {
   kobo: { enabled: false, country: 'us', language: 'en' },
   lubimyczytac: { enabled: false },
   aladin: { enabled: false, ttbKey: '' },
+  yandexBooks: { enabled: false },
 };
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -140,6 +141,7 @@ const PROVIDER_LABELS: Record<MetadataProviderKey, string> = {
   [MetadataProviderKey.KOBO]: 'Kobo',
   [MetadataProviderKey.LUBIMYCZYTAC]: 'LubimyCzytac',
   [MetadataProviderKey.ALADIN]: 'Aladin',
+  [MetadataProviderKey.YANDEX_BOOKS]: 'Yandex Books',
 };
 
 type ProviderEnableRule = {
@@ -193,6 +195,7 @@ export class ProviderConfigService {
       kobo: { ...DEFAULT_CONFIG.kobo },
       lubimyczytac: { ...DEFAULT_CONFIG.lubimyczytac },
       aladin: { ...DEFAULT_CONFIG.aladin },
+      yandexBooks: { ...DEFAULT_CONFIG.yandexBooks },
     };
   }
 
@@ -213,6 +216,7 @@ export class ProviderConfigService {
       kobo: mergeKoboConfig(base.kobo, next.kobo),
       lubimyczytac: mergeSimpleConfig(base.lubimyczytac, next.lubimyczytac),
       aladin: mergeAladinConfig(base.aladin, next.aladin),
+      yandexBooks: mergeSimpleConfig(base.yandexBooks, next.yandexBooks),
     };
   }
 
@@ -466,6 +470,13 @@ export class ProviderConfigService {
         hint: 'Polish book catalog (lubimyczytac.pl). Scrapes public pages.',
       },
       {
+        key: MetadataProviderKey.YANDEX_BOOKS,
+        label: PROVIDER_LABELS[MetadataProviderKey.YANDEX_BOOKS],
+        enabled: cfg.yandexBooks.enabled,
+        configured: true,
+        hint: 'Public ebook catalog. Search by title and author; no API key required.',
+      },
+      {
         key: MetadataProviderKey.ALADIN,
         label: PROVIDER_LABELS[MetadataProviderKey.ALADIN],
         enabled: cfg.aladin.enabled,
@@ -507,8 +518,39 @@ export class ProviderConfigService {
         return this.testHardcoverProvider(config.hardcover.apiKey);
       case MetadataProviderKey.ALADIN:
         return this.testAladinProvider(config.aladin.ttbKey);
+      case MetadataProviderKey.YANDEX_BOOKS:
+        return this.testYandexBooksProvider();
       default:
         throw new BadRequestException(`Provider test not supported for ${key}`);
+    }
+  }
+
+  private async testYandexBooksProvider(): Promise<ProviderConnectionTestResult> {
+    const key = MetadataProviderKey.YANDEX_BOOKS;
+    try {
+      const response = await fetch('https://api.bookmate.yandex.net/api/v5/books/mqK3FFjg', {
+        headers: {
+          accept: 'application/json',
+          'app-language': 'ru',
+          'app-locale': 'ru',
+          'app-platform': 'android',
+          'bookmate-version': '20200305',
+          'device-os': 'Android',
+          'user-agent': 'okhttp/4.12.0',
+        },
+        signal: AbortSignal.timeout(PROVIDER_TEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        return { key, ok: false, status: 'fail', message: `Yandex Books returned HTTP ${response.status}` };
+      }
+      const body = asObject(await response.json());
+      const book = asObject(body.book);
+      if (typeof book.uuid !== 'string' || !book.uuid || typeof book.title !== 'string' || !book.title.trim()) {
+        return { key, ok: false, status: 'fail', message: 'Yandex Books returned an unexpected catalog response' };
+      }
+      return { key, ok: true, status: 'success', message: 'Yandex Books public catalog is reachable without an API key' };
+    } catch {
+      return { key, ok: false, status: 'fail', message: 'Could not reach the Yandex Books public catalog' };
     }
   }
 

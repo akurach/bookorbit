@@ -76,6 +76,12 @@ const PROVIDER_LINK_DEFINITIONS: readonly ProviderLinkDefinition[] = [
     fallback: 'OL',
   },
   {
+    key: MetadataProviderKey.YANDEX_BOOKS,
+    label: 'Yandex Books',
+    url: (id) => `https://books.yandex.ru/books/${encoded(id)}`,
+    fallback: 'YB',
+  },
+  {
     key: MetadataProviderKey.ITUNES,
     label: 'Apple Books',
     url: (id) => `https://books.apple.com/book/id${encoded(id)}`,

@@ -301,6 +301,7 @@ describe('BookMetadataFetchOrchestratorService', () => {
         [MetadataProviderKey.AUDIBLE]: 'a1',
         [MetadataProviderKey.LIBROFM]: '9781234567890',
         [MetadataProviderKey.KOBO]: 'kobo-1',
+        [MetadataProviderKey.YANDEX_BOOKS]: 'AbC123YandexBook',
       },
       skippedFields: [],
     });
@@ -323,6 +324,7 @@ describe('BookMetadataFetchOrchestratorService', () => {
         audibleId: 'a1',
         librofmId: '9781234567890',
         koboId: 'kobo-1',
+        yandexBooksId: 'AbC123YandexBook',
       }),
     );
     expect(bookReadService.replaceCommunityRatings).toHaveBeenCalledWith(88, [

@@ -28,6 +28,7 @@ export type ProviderIdPatchField =
   | 'amazonId'
   | 'hardcoverId'
   | 'openLibraryId'
+  | 'yandexBooksId'
   | 'itunesId'
   | 'audibleId'
   | 'librofmId'
@@ -124,6 +125,7 @@ export const PROVIDER_ID_FIELD: Record<MetadataProviderKey, ProviderIdPatchField
   amazon: 'amazonId',
   hardcover: 'hardcoverId',
   openLibrary: 'openLibraryId',
+  yandexBooks: 'yandexBooksId',
   itunes: 'itunesId',
   audible: 'audibleId',
   audnexus: 'audibleId',

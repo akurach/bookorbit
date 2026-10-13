@@ -195,6 +195,7 @@ export function useMetadataSearch() {
     'itunes',
     'kobo',
     'openLibrary',
+    'yandexBooks',
     'aladin',
   ]
 

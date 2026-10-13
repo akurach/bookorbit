@@ -23,6 +23,7 @@ import { selectPrimaryFile } from '../../common/utils/primary-file-selection.uti
 import { normalizeMetadataText, normalizeMetadataTextKey } from '../../common/utils/metadata-text-normalize.utils';
 import { compareBookFilePaths } from '../../common/utils/audio-track-order.utils';
 import { normalizePublishedDate, publishedYearFromDateKey } from '../../common/utils/published-date.utils';
+import { boundProviderId } from '../../common/utils/provider-id.utils';
 import { buildPatternTokens } from '../../common/utils/pattern-tokens.utils';
 import { SeriesExpectedCountService } from '../../common/services/series-expected-count.service';
 import { SeriesMembershipService } from '../../common/services/series-membership.service';
@@ -363,6 +364,7 @@ export class BookService {
     ranobedbId?: string | null;
     lubimyczytacId?: string | null;
     aladinId?: string | null;
+    yandexBooksId?: string | null;
   }): Partial<Record<MetadataProviderKey, string>> {
     const providerIds: Partial<Record<MetadataProviderKey, string>> = {};
     if (meta.googleBooksId) providerIds[MetadataProviderKey.GOOGLE] = meta.googleBooksId;
@@ -378,6 +380,7 @@ export class BookService {
     if (meta.ranobedbId) providerIds[MetadataProviderKey.RANOBEDB] = meta.ranobedbId;
     if (meta.lubimyczytacId) providerIds[MetadataProviderKey.LUBIMYCZYTAC] = meta.lubimyczytacId;
     if (meta.aladinId) providerIds[MetadataProviderKey.ALADIN] = meta.aladinId;
+    if (meta.yandexBooksId) providerIds[MetadataProviderKey.YANDEX_BOOKS] = meta.yandexBooksId;
     return providerIds;
   }
 
@@ -398,6 +401,7 @@ export class BookService {
       | 'ranobedbId'
       | 'lubimyczytacId'
       | 'aladinId'
+      | 'yandexBooksId'
     >,
     providerIds: Partial<Record<MetadataProviderKey, string>>,
   ): void {
@@ -414,6 +418,8 @@ export class BookService {
     if (providerIds[MetadataProviderKey.RANOBEDB]) dto.ranobedbId = providerIds[MetadataProviderKey.RANOBEDB];
     if (providerIds[MetadataProviderKey.LUBIMYCZYTAC]) dto.lubimyczytacId = providerIds[MetadataProviderKey.LUBIMYCZYTAC];
     if (providerIds[MetadataProviderKey.ALADIN]) dto.aladinId = providerIds[MetadataProviderKey.ALADIN];
+    const yandexBooksId = boundProviderId('yandexBooksId', providerIds[MetadataProviderKey.YANDEX_BOOKS]);
+    if (yandexBooksId) dto.yandexBooksId = yandexBooksId;
   }
 
   private buildMetadataRefreshPreview(
@@ -1849,6 +1855,7 @@ export class BookService {
     if (dto.ranobedbId !== undefined) scalarFields.ranobedbId = dto.ranobedbId ?? null;
     if (dto.lubimyczytacId !== undefined) scalarFields.lubimyczytacId = dto.lubimyczytacId ?? null;
     if (dto.aladinId !== undefined) scalarFields.aladinId = dto.aladinId ?? null;
+    if (dto.yandexBooksId !== undefined) scalarFields.yandexBooksId = dto.yandexBooksId ?? null;
     if (dto.rating !== undefined) scalarFields.rating = dto.rating ?? null;
     if (dto.audioMetadata) {
       if (dto.audioMetadata.durationSeconds !== undefined) scalarFields.durationSeconds = dto.audioMetadata.durationSeconds ?? null;
@@ -3380,6 +3387,7 @@ export class BookService {
         [MetadataProviderKey.RANOBEDB]: meta?.ranobedbId ?? null,
         [MetadataProviderKey.LUBIMYCZYTAC]: meta?.lubimyczytacId ?? null,
         [MetadataProviderKey.ALADIN]: meta?.aladinId ?? null,
+        [MetadataProviderKey.YANDEX_BOOKS]: meta?.yandexBooksId ?? null,
       },
       authors: authorRows,
       genres: genreRows.map((g) => g.name),
@@ -3600,6 +3608,7 @@ export class BookService {
           ranobedbId: parsed.ranobedbId,
           lubimyczytacId: parsed.lubimyczytacId,
           aladinId: parsed.aladinId,
+          yandexBooksId: parsed.yandexBooksId,
           customMetadata: customMetadata.length > 0 ? customMetadata : undefined,
           authors: parsed.authors.length > 0 ? parsed.authors.map((a) => a.name) : undefined,
           genres: parsed.genres.length > 0 ? parsed.genres : undefined,
@@ -3635,6 +3644,7 @@ export class BookService {
           ranobedbId: parsed.ranobedbId,
           lubimyczytacId: parsed.lubimyczytacId,
           aladinId: parsed.aladinId,
+          yandexBooksId: parsed.yandexBooksId,
           authors: parsed.authors.length > 0 ? parsed.authors.map((a) => a.name) : undefined,
           genres: parsed.genres.length > 0 ? parsed.genres : undefined,
         };
@@ -3689,6 +3699,7 @@ export class BookService {
           ranobedbId: parsed.ranobedbId,
           lubimyczytacId: parsed.lubimyczytacId,
           aladinId: parsed.aladinId,
+          yandexBooksId: parsed.yandexBooksId,
           authors: parsed.authors.length > 0 ? parsed.authors.map((a) => a.name) : undefined,
           genres: cbzGenres.length > 0 ? cbzGenres : undefined,
           comicMetadata: parsed.comicMetadata ?? undefined,

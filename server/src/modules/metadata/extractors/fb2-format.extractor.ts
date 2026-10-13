@@ -41,6 +41,7 @@ export class Fb2FormatExtractor implements FormatExtractor {
       koboId: custom.koboId ?? null,
       lubimyczytacId: custom.lubimyczytacId ?? null,
       aladinId: custom.aladinId ?? null,
+      yandexBooksId: custom.yandexBooksId ?? null,
       itunesId: custom.itunesId ?? null,
       cover: cover ?? null,
     };

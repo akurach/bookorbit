@@ -29,6 +29,7 @@ export interface StoredProviderIdsRow {
   ranobedbId: string | null;
   lubimyczytacId: string | null;
   aladinId: string | null;
+  yandexBooksId: string | null;
   coverMedia: CoverMedia;
 }
 
@@ -57,6 +58,7 @@ export class MetadataFetchRepository {
         ranobedbId: bookMetadata.ranobedbId,
         lubimyczytacId: bookMetadata.lubimyczytacId,
         aladinId: bookMetadata.aladinId,
+        yandexBooksId: bookMetadata.yandexBooksId,
         hasEbook: media.hasEbook,
         hasAudio: media.hasAudio,
       })

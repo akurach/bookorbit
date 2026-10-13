@@ -2,6 +2,7 @@ import { COMMUNITY_RATING_PROVIDER_KEYS, METADATA_PROVIDER_SUPPORTED_FIELDS, Met
 
 import type { MetadataProvider } from './providers/metadata-provider';
 import { AladinProvider } from './providers/aladin/aladin.provider';
+import { YandexBooksProvider } from './providers/yandex-books/yandex-books.provider';
 import { AmazonProvider } from './providers/amazon/amazon.provider';
 import { AudibleProvider } from './providers/audible/audible.provider';
 import { AudnexusProvider } from './providers/audnexus/audnexus.provider';
@@ -36,6 +37,7 @@ const PROVIDER_CLASSES = [
   KoboProvider,
   LubimyczytacProvider,
   AladinProvider,
+  YandexBooksProvider,
 ];
 
 // Declarations are plain class fields, so dependencies that are never called can be empty stand-ins.

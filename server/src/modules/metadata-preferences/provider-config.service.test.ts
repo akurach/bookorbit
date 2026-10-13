@@ -77,6 +77,7 @@ describe('ProviderConfigService', () => {
       kobo: { enabled: false, country: 'us', language: 'en' },
       lubimyczytac: { enabled: false },
       aladin: { enabled: false, ttbKey: '' },
+      yandexBooks: { enabled: false },
     });
   });
 
@@ -372,6 +373,7 @@ describe('ProviderConfigService', () => {
       kobo: { enabled: false, country: 'us', language: 'en' },
       lubimyczytac: { enabled: false },
       aladin: { enabled: false, ttbKey: '' },
+      yandexBooks: { enabled: false },
     });
 
     expect(statuses.map((s) => s.key)).toEqual([
@@ -388,6 +390,7 @@ describe('ProviderConfigService', () => {
       MetadataProviderKey.RANOBEDB,
       MetadataProviderKey.KOBO,
       MetadataProviderKey.LUBIMYCZYTAC,
+      MetadataProviderKey.YANDEX_BOOKS,
       MetadataProviderKey.ALADIN,
     ]);
     expect(statuses.find((s) => s.key === MetadataProviderKey.GOOGLE)?.configured).toBe(false);
@@ -416,6 +419,7 @@ describe('ProviderConfigService', () => {
       kobo: { enabled: false, country: 'us', language: 'en' },
       lubimyczytac: { enabled: false },
       aladin: { enabled: false, ttbKey: '' },
+      yandexBooks: { enabled: false },
     });
 
     expect(statuses.find((s) => s.key === MetadataProviderKey.HARDCOVER)?.configured).toBe(true);
@@ -530,6 +534,53 @@ describe('ProviderConfigService', () => {
     const requestUrl = fetchMock.mock.calls[0]?.[0];
     expect(requestUrl).toBeInstanceOf(URL);
     expect((requestUrl as URL).hostname).toBe('www.amazon.com');
+  });
+
+  it('enables Yandex Books without credentials and preserves stored provider settings', async () => {
+    db.__tx.query.appSettings.findFirst.mockResolvedValue({ value: JSON.stringify({ openLibrary: { enabled: false } }) });
+
+    const updated = await service.updateConfig({ yandexBooks: { enabled: true } });
+
+    expect(updated.yandexBooks).toEqual({ enabled: true });
+    expect(updated.openLibrary.enabled).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await service.getProviderStatuses(updated)).toContainEqual(
+      expect.objectContaining({ key: MetadataProviderKey.YANDEX_BOOKS, enabled: true, configured: true }),
+    );
+  });
+
+  it('tests the Yandex Books public catalog without sending credentials or enabling it', async () => {
+    db.query.appSettings.findFirst.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ book: { uuid: 'mqK3FFjg', title: 'A book' } })));
+
+    expect(await service.testProvider(MetadataProviderKey.YANDEX_BOOKS)).toMatchObject({ ok: true, status: 'success' });
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.bookmate.yandex.net/api/v5/books/mqK3FFjg');
+    expect(options.headers).not.toHaveProperty('Auth-Token');
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new Response('{}'),
+    new Response(JSON.stringify({ book: { uuid: 'mqK3FFjg' } })),
+    new Response('<html>challenge</html>'),
+    new Response('', { status: 429 }),
+  ])('does not report malformed or failed Yandex Books responses as connected', async (response) => {
+    db.query.appSettings.findFirst.mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(response);
+
+    expect(await service.testProvider(MetadataProviderKey.YANDEX_BOOKS)).toMatchObject({ ok: false, status: 'fail' });
+  });
+
+  it('reports Yandex Books timeouts without exposing transport details', async () => {
+    db.query.appSettings.findFirst.mockResolvedValue(undefined);
+    fetchMock.mockRejectedValue(new Error('transport implementation detail'));
+
+    const result = await service.testProvider(MetadataProviderKey.YANDEX_BOOKS);
+    expect(result).toMatchObject({ ok: false, status: 'fail' });
+    expect(result.message).not.toContain('transport implementation detail');
   });
 
   it('rejects unsupported provider test requests', async () => {

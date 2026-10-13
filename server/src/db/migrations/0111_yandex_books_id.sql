@@ -1,0 +1,1 @@
+ALTER TABLE "book_metadata" ADD COLUMN "yandex_books_id" varchar(255);

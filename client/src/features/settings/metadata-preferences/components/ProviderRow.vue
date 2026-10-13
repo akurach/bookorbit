@@ -36,6 +36,7 @@ const nameId = computed(() => `provider-name-${uid}`)
 const panelId = computed(() => `provider-panel-${uid}`)
 
 const hasFields = computed(() => props.row.fields.length > 0)
+const hasPanel = computed(() => hasFields.value || props.testable)
 const brandColor = computed(() => getProviderColor(props.row.key))
 
 const CHIP_CLASSES: Record<ProviderChipView['kind'], string> = {
@@ -111,7 +112,7 @@ function handleExpandToggle() {
 
         <span class="flex shrink-0 md:min-w-[7.5rem] md:justify-end">
           <Button
-            v-if="hasFields"
+            v-if="hasPanel"
             type="button"
             variant="outline"
             size="sm"

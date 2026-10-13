@@ -21,6 +21,7 @@ export interface FileMetadata {
   hardcoverId?: string | null
   hardcoverEditionId?: string | null
   openLibraryId?: string | null
+  yandexBooksId?: string | null
   itunesId?: string | null
   audibleId?: string | null
   librofmId?: string | null

@@ -273,6 +273,7 @@ const providerIds = computed<ProviderIds>(() => ({
   amazon: passthroughMetadata.value.amazonId ?? null,
   hardcover: passthroughMetadata.value.hardcoverId ?? null,
   openLibrary: passthroughMetadata.value.openLibraryId ?? null,
+  yandexBooks: passthroughMetadata.value.yandexBooksId ?? null,
   itunes: passthroughMetadata.value.itunesId ?? null,
   audible: passthroughMetadata.value.audibleId ?? null,
   librofm: passthroughMetadata.value.librofmId ?? null,

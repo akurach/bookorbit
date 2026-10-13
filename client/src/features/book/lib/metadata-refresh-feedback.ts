@@ -11,6 +11,7 @@ const PROVIDER_LABELS: Record<MetadataProviderKeyType, string> = {
   [MetadataProviderKey.AMAZON]: 'Amazon',
   [MetadataProviderKey.HARDCOVER]: 'Hardcover',
   [MetadataProviderKey.OPEN_LIBRARY]: 'Open Library',
+  [MetadataProviderKey.YANDEX_BOOKS]: 'Yandex Books',
   [MetadataProviderKey.ITUNES]: 'iTunes',
   [MetadataProviderKey.AUDIBLE]: 'Audible',
   [MetadataProviderKey.AUDNEXUS]: 'AudNexus',

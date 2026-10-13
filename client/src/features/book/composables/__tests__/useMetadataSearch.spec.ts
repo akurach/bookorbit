@@ -152,6 +152,26 @@ describe('useMetadataSearch', () => {
     expect(state.isStreaming.value).toBe(false)
   })
 
+  it('selects and attributes Yandex Books results through the normal metadata stream', async () => {
+    const yandexBooks = candidate(MetadataProviderKey.YANDEX_BOOKS, 'yandex-book-1')
+    apiMock
+      .mockResolvedValueOnce({ ok: true, json: async () => [provider(MetadataProviderKey.YANDEX_BOOKS)] })
+      .mockResolvedValueOnce(streamResponse([event(yandexBooks)]))
+
+    const scope = effectScope()
+    const state = scope.run(() => useMetadataSearch())!
+    await state.loadProviders(42)
+    await state.search({ title: 'Dune', author: 'Frank Herbert', bookId: 42, isAudiobook: false })
+    scope.stop()
+
+    expect(apiMock).toHaveBeenLastCalledWith(
+      '/api/v1/metadata-fetch/stream?title=Dune&author=Frank+Herbert&bookId=42&isAudiobook=false&providers=yandexBooks',
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(state.filteredResults.value).toEqual([yandexBooks])
+    expect(state.providerCounts[MetadataProviderKey.YANDEX_BOOKS]).toBe(1)
+  })
+
   it('requests the sole available provider when no provider filter is selected', async () => {
     apiMock.mockResolvedValue({ ok: false })
 

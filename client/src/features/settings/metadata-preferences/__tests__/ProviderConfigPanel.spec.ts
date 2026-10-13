@@ -19,6 +19,7 @@ function makeConfig(overrides: Partial<ProviderConfigurations> = {}): ProviderCo
     goodreads: { enabled: false },
     hardcover: { enabled: true, apiKey: 'hardcover-secret-key' },
     openLibrary: { enabled: false },
+    yandexBooks: { enabled: false },
     itunes: { enabled: false, coverResolution: 'high' },
     audible: { enabled: false, domain: 'audible.com' },
     audnexus: { enabled: false },

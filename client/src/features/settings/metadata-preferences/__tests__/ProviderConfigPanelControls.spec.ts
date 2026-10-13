@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import type { VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProviderConfigurations, ProviderStatus } from '@bookorbit/types'
+import { MetadataProviderKey, type ProviderConfigurations, type ProviderStatus } from '@bookorbit/types'
 import ProviderConfigPanel from '../components/ProviderConfigPanel.vue'
 
 const toastSuccess = vi.hoisted(() => vi.fn<(message: string) => void>())
@@ -18,6 +18,7 @@ function makeConfig(overrides: Partial<ProviderConfigurations> = {}): ProviderCo
     goodreads: { enabled: false },
     hardcover: { enabled: false, apiKey: '' },
     openLibrary: { enabled: false },
+    yandexBooks: { enabled: false },
     itunes: { enabled: false, coverResolution: 'high' },
     audible: { enabled: false, domain: 'audible.com' },
     audnexus: { enabled: false },
@@ -41,6 +42,7 @@ function makeStatuses(): ProviderStatus[] {
     configured('goodreads', false),
     configured('hardcover', false, false),
     configured('openLibrary', false),
+    configured('yandexBooks', false),
     configured('itunes', false),
     configured('audible', false),
     configured('audnexus', false),
@@ -84,6 +86,13 @@ function configureButtonFor(wrapper: VueWrapper, name: string) {
   const button = row?.querySelector('button[aria-expanded]')
   if (!button) throw new Error(`No configure button for "${name}"`)
   return wrapper.find(`#${CSS.escape(button.getAttribute('aria-controls') ?? '')}`)
+}
+
+function testButtonFor(wrapper: VueWrapper, name: string) {
+  const row = rowFor(wrapper, name).element.closest('div.relative')
+  const button = [...(row?.querySelectorAll('button') ?? [])].find((candidate) => candidate.textContent?.trim() === 'Test')
+  if (!button) throw new Error(`No test button for ${name}`)
+  return wrapper.findAll('button').find((candidate) => candidate.element === button)
 }
 
 beforeEach(() => {
@@ -133,7 +142,7 @@ describe('ProviderConfigPanel browsing', () => {
 
     const clear = wrapper.findAll('button').find((candidate) => candidate.text() === 'Clear filters')
     await clear?.trigger('click')
-    expect(wrapper.findAll('[role="switch"]')).toHaveLength(14)
+    expect(wrapper.findAll('[role="switch"]')).toHaveLength(15)
     wrapper.unmount()
   })
 })
@@ -200,6 +209,17 @@ describe('ProviderConfigPanel enable requirements', () => {
 
     expect(rowFor(wrapper, 'Kobo').attributes('aria-checked')).toBe('true')
     expect(toastError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('opens and tests the keyless Yandex Books source', async () => {
+    const wrapper = mountPanel()
+
+    const configure = configureButtonFor(wrapper, 'Yandex Books')
+    await configure.trigger('click')
+    await testButtonFor(wrapper, 'Yandex Books').trigger('click')
+
+    expect(wrapper.emitted('test')?.[0]?.[0]).toBe(MetadataProviderKey.YANDEX_BOOKS)
     wrapper.unmount()
   })
 

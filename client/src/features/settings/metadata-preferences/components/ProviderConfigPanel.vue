@@ -39,7 +39,12 @@ const GROUP_ICONS: Record<ProviderGroupId, typeof BookOpen> = {
   regional: Globe,
 }
 
-const TESTABLE_PROVIDERS: MetadataProviderKey[] = [MetadataProviderKey.AMAZON, MetadataProviderKey.HARDCOVER, MetadataProviderKey.ALADIN]
+const TESTABLE_PROVIDERS: MetadataProviderKey[] = [
+  MetadataProviderKey.AMAZON,
+  MetadataProviderKey.HARDCOVER,
+  MetadataProviderKey.YANDEX_BOOKS,
+  MetadataProviderKey.ALADIN,
+]
 
 const rows = useProviderRows()
 const draft = ref<ProviderConfigurations | null>(null)

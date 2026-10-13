@@ -18,6 +18,7 @@ export const MetadataProviderKey = {
   KOBO: "kobo",
   LUBIMYCZYTAC: "lubimyczytac",
   ALADIN: "aladin",
+  YANDEX_BOOKS: "yandexBooks",
 } as const;
 
 export const COMMUNITY_RATING_PROVIDER_KEYS = [

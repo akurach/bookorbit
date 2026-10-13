@@ -105,6 +105,7 @@ const CUSTOM_INFO_FIELDS = [
   'koboId',
   'lubimyczytacId',
   'aladinId',
+  'yandexBooksId',
   'itunesId',
 ] as const;
 

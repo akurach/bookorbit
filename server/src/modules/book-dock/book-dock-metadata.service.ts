@@ -103,7 +103,8 @@ type ProviderIdMetadata = Partial<
     | 'comicvineId'
     | 'ranobedbId'
     | 'lubimyczytacId'
-    | 'aladinId',
+    | 'aladinId'
+    | 'yandexBooksId',
     string | null
   >
 >;
@@ -125,6 +126,7 @@ function providerIdMetadata(data: ProviderIdMetadata): Partial<BookDockMetadata>
     'ranobedbId',
     'lubimyczytacId',
     'aladinId',
+    'yandexBooksId',
   ] as const;
   for (const field of fields) {
     const value = data[field];

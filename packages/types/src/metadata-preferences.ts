@@ -148,6 +148,7 @@ export interface ProviderConfigurations {
   kobo: KoboProviderConfig;
   lubimyczytac: SimpleProviderConfig;
   aladin: AladinProviderConfig;
+  yandexBooks: SimpleProviderConfig;
 }
 
 export interface ProviderStatus {
@@ -374,6 +375,7 @@ export const METADATA_PROVIDER_SUPPORTED_FIELDS: Record<MetadataProviderKey, rea
     "seriesName",
     "genres",
   ],
+  [MetadataProviderKey.YANDEX_BOOKS]: ["title", "description", "cover", "authors", "publisher", "publishedYear", "language", "pageCount", "genres"],
 };
 
 /** How a provider stands against one field: it can fill it, its cover art is the other shape, or never. */
