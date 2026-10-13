@@ -16,6 +16,10 @@ no separate service, Python package, API key, or Yandex account.
    refreshes can look up that exact catalog entry. The ID is editable with the
    other provider IDs and links to the public book page.
 
+Enabling a source does not change existing **Field Rules**. Manual search can
+use it immediately. For automatic fetch, add Yandex Books to the desired fields
+in **Field Rules** and choose its priority.
+
 Supported fields: title, authors, description, cover, publisher, language, page
 count, genres, and original publication year when returned by the source.
 Search results can contain fewer fields than an ID lookup. Missing fields remain
@@ -63,6 +67,10 @@ as required by the project's Crowdin workflow.
 **Configure > Test** проверяет доступ к каталогу. Затем откройте поиск метаданных
 в карточке книги, выберите Яндекс и укажите название, при необходимости автора.
 Проверьте найденное издание и примените нужные поля.
+
+Включение источника не меняет существующие **Field Rules**. Ручной поиск
+доступен сразу. Для автоматического заполнения добавьте Яндекс в правила
+нужных полей и укажите его приоритет.
 
 Источник возвращает доступные название, авторов, аннотацию, обложку,
 издательство, язык, число страниц, жанры и исходный год публикации.
