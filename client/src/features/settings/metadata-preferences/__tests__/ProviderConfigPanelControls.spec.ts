@@ -81,7 +81,7 @@ function rowFor(wrapper: VueWrapper, name: string) {
   return toggle
 }
 
-function configureButtonFor(wrapper: VueWrapper, name: string) {
+function configurationPanelFor(wrapper: VueWrapper, name: string) {
   const row = rowFor(wrapper, name).element.closest('div.relative')
   const button = row?.querySelector('button[aria-expanded]')
   if (!button) throw new Error(`No configure button for "${name}"`)
@@ -92,7 +92,9 @@ function testButtonFor(wrapper: VueWrapper, name: string) {
   const row = rowFor(wrapper, name).element.closest('div.relative')
   const button = [...(row?.querySelectorAll('button') ?? [])].find((candidate) => candidate.textContent?.trim() === 'Test')
   if (!button) throw new Error(`No test button for ${name}`)
-  return wrapper.findAll('button').find((candidate) => candidate.element === button)
+  const wrapped = wrapper.findAll('button').find((candidate) => candidate.element === button)
+  if (!wrapped) throw new Error(`No test button wrapper for ${name}`)
+  return wrapped
 }
 
 beforeEach(() => {
@@ -192,13 +194,13 @@ describe('ProviderConfigPanel enable requirements', () => {
   it('refuses a source that is not configured, says why, and opens its settings', async () => {
     const wrapper = mountPanel()
 
-    expect(configureButtonFor(wrapper, 'Hardcover').isVisible()).toBe(false)
+    expect(configurationPanelFor(wrapper, 'Hardcover').isVisible()).toBe(false)
 
     await rowFor(wrapper, 'Hardcover').trigger('click')
 
     expect(rowFor(wrapper, 'Hardcover').attributes('aria-checked')).toBe('false')
     expect(toastError).toHaveBeenCalledWith('Hardcover requires an API key before it can be enabled')
-    expect(configureButtonFor(wrapper, 'Hardcover').isVisible()).toBe(true)
+    expect(configurationPanelFor(wrapper, 'Hardcover').isVisible()).toBe(true)
     wrapper.unmount()
   })
 
@@ -215,8 +217,11 @@ describe('ProviderConfigPanel enable requirements', () => {
   it('opens and tests the keyless Yandex Books source', async () => {
     const wrapper = mountPanel()
 
-    const configure = configureButtonFor(wrapper, 'Yandex Books')
+    const panel = configurationPanelFor(wrapper, 'Yandex Books')
+    expect(panel.isVisible()).toBe(false)
+    const configure = wrapper.get(`button[aria-controls="${CSS.escape(panel.attributes('id') ?? '')}"]`)
     await configure.trigger('click')
+    expect(panel.isVisible()).toBe(true)
     await testButtonFor(wrapper, 'Yandex Books').trigger('click')
 
     expect(wrapper.emitted('test')?.[0]?.[0]).toBe(MetadataProviderKey.YANDEX_BOOKS)
