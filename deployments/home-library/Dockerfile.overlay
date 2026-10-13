@@ -1,0 +1,15 @@
+FROM ghcr.io/bookorbit/bookorbit:3.4.0@sha256:99539be044c94f10fa5fba616cb08e1b128deb4996c975d181a950818a8632e4
+
+# The source is based on v3.4.0 and adds no runtime dependencies.
+# Keep its Linux ARM64 runtime and replace the compiled application artifacts.
+ARG SOURCE_COMMIT
+ENV APP_VERSION=3.4.0-yandex.1
+LABEL org.opencontainers.image.source="https://github.com/akurach/bookorbit"
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}"
+
+RUN rm -rf /app/dist /app/public /app/migrations /app/node_modules/.pnpm/@bookorbit+types@file+packages+types/node_modules/@bookorbit/types/dist
+COPY --chown=node:node server-dist/ /app/dist/
+COPY --chown=node:node public/ /app/public/
+COPY --chown=node:node types-dist/ /app/node_modules/.pnpm/@bookorbit+types@file+packages+types/node_modules/@bookorbit/types/dist/
+COPY --chown=node:node migrations/ /app/migrations/
+COPY --chown=node:node yandex-book-api-MIT.txt /app/third-party-licenses/yandex-book-api-MIT.txt
