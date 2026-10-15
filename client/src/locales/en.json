@@ -9243,7 +9243,7 @@
       "noBooksFound": "No books found",
       "clearSelection": "Clear selected book",
       "untitled": "Untitled",
-      "filesAttached": "{count} file | {count} files",
+      "filesAttached": "Attached files: {count}",
       "unknownStatus": "Unknown",
       "conflictHint": "This source update conflicts with a local reading state.",
       "keepLocal": "Keep local",
