@@ -148,6 +148,25 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     expect(book.externalReading).toEqual([expect.objectContaining({ percentage: 45, remoteStatus: 'reading' })]);
   });
 
+  it('rejects reusing a source from a different destination before changing its reading snapshot', async () => {
+    const original = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    const other = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, original.libraryId, 'editor');
+    await grantLibraryAccess(ctx, session.userId, other.libraryId, 'editor');
+    const source = item();
+    const imported = await catalog.importItem(await user(), original, source);
+    const snapshot = await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, imported.bookId));
+    const status = await ctx.db.select().from(schema.userBookStatus).where(eq(schema.userBookStatus.bookId, imported.bookId));
+
+    await expect(catalog.importItem(await user(), other, { ...source, percentage: 100, status: 'read', remoteStatus: 'finished' })).rejects.toThrow(
+      'An external item can only be linked inside its destination library',
+    );
+
+    expect(await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, imported.bookId))).toEqual(snapshot);
+    expect(await ctx.db.select().from(schema.userBookStatus).where(eq(schema.userBookStatus.bookId, imported.bookId))).toEqual(status);
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, other.libraryId))).toEqual([]);
+  });
+
   it('keeps snapshots private and preserves locally edited metadata and status', async () => {
     const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
     await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');

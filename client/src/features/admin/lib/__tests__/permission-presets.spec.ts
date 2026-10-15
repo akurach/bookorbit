@@ -58,6 +58,14 @@ describe('permission-presets', () => {
     expect(bookDock?.manage).toEqual([Permission.ManageBookDock])
   })
 
+  it('allows administrators to grant Yandex import without giving it to every standard reader', () => {
+    const integrations = PERMISSION_GROUPS.find((group) => group.id === 'readingIntegrations')
+
+    expect(integrations?.use).toContain(Permission.YandexBooksSync)
+    expect(presetPermissions('admin')).toContain(Permission.YandexBooksSync)
+    expect(presetPermissions('standard')).not.toContain(Permission.YandexBooksSync)
+  })
+
   it('separates requesting a book from moderating the queue', () => {
     const bookRequests = PERMISSION_GROUPS.find((group) => group.id === 'bookRequests')
 

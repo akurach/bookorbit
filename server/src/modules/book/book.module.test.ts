@@ -28,6 +28,7 @@ import { DeliveryHashRegistrationService } from './delivery-hash-registration.se
 import { DeliverySelectionService } from './delivery-selection.service';
 import { AudiolessEpubService } from './audioless-epub.service';
 import { ExternalCatalogService } from './external-catalog.service';
+import { ExternalCatalogRepository } from './external-catalog.repository';
 
 describe('BookModule', () => {
   it('imports the shared registry used by the file watcher', () => {
@@ -50,6 +51,7 @@ describe('BookModule', () => {
       DeliverySelectionService,
       DeliveryHashRegistrationService,
       ExternalCatalogService,
+      ExternalCatalogRepository,
     ]);
     // AudiolessEpubService is exported so the Kobo download path can strip narration itself,
     // without routing through BookService and its RequestUser-based access checks.

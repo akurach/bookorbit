@@ -68,6 +68,7 @@ export const E2E_SUITES = Object.freeze({
       "server/src/app.module.ts",
       "server/src/db/migrations/**",
       "client/src/features/yandex-books/**",
+      "client/src/features/admin/lib/permission-presets*",
       "client/src/features/book/**",
       "client/src/router/**",
       "server/test/yandex-books-reading.e2e-spec.ts",

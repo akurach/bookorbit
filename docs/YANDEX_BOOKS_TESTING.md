@@ -55,6 +55,11 @@ The two registry entries also participate in the existing full-suite matrix.
 The fork-specific workflow and selector can stay out of upstream PRs; include the
 relevant tests and registry entry with each feature, following maintainer guidance.
 
+The full-suite check also guards the import's repository boundary and permission
+registration. Persistence stays in `ExternalCatalogRepository`; the service keeps
+access checks and cover orchestration. Yandex import is available in the admin
+permission editor without being granted by the standard-reader preset.
+
 ## Кратко по-русски
 
 Проверки покрывают источник метаданных и импорт библиотеки: повторный импорт без
