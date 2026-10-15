@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { UnauthorizedException } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { Permission, type BookDetail, type ExternalCatalogItem } from '@bookorbit/types';
 
@@ -60,6 +61,11 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     viewer = await createUserAndLogin(ctx);
   });
 
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await ctx.db.delete(schema.yandexBooksSettings).where(eq(schema.yandexBooksSettings.userId, session.userId));
+  });
+
   afterAll(async () => {
     if (ctx) await closeAuthorizationMatrixE2EContext(ctx);
     if (previousEncryptionKey === undefined) delete process.env.YANDEX_BOOKS_ENCRYPTION_KEY;
@@ -89,6 +95,37 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
       headers: { ...authHeader(session.accessToken), 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: body,
     });
+  }
+
+  const request = (token: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, payload?: Record<string, unknown>) =>
+    ctx.app.inject({
+      method,
+      url: `/api/v1/yandex-books/${path}`,
+      headers: authHeader(token),
+      ...(payload ? { payload } : {}),
+    });
+
+  async function waitForSync(token: string, expected: Partial<{ needsReauth: boolean; lastError: string | null }> = {}) {
+    await vi.waitFor(
+      async () => {
+        const settings = (await request(token, 'GET', 'settings')).json();
+        expect(settings.syncing).toBe(false);
+        for (const [key, value] of Object.entries(expected)) expect(settings[key]).toBe(value);
+      },
+      { timeout: 10_000, interval: 20 },
+    );
+  }
+
+  async function connect(token: string, destination: Awaited<ReturnType<typeof createLibraryWithFolder>>, apiToken: string) {
+    const response = await request(token, 'PATCH', 'settings', {
+      apiToken,
+      libraryId: destination.libraryId,
+      libraryFolderId: destination.libraryFolderId,
+      autoSync: false,
+      intervalHours: 24,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
   }
 
   it('imports idempotently without a file and retains the card across a full scan', async () => {
@@ -349,6 +386,164 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
   it('requires the new permission at the HTTP boundary', async () => {
     const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/yandex-books/settings', headers: authHeader(viewer.accessToken) });
     expect(response.statusCode).toBe(403);
+  });
+
+  it('rejects invalid credentials without persisting a connection', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const client = ctx.app.get(YandexBooksClientService);
+    vi.spyOn(client, 'getProfile').mockRejectedValueOnce(new UnauthorizedException('Yandex Books authorization expired'));
+
+    const response = await request(session.accessToken, 'PATCH', 'settings', {
+      apiToken: 'invalid-fixture-token',
+      libraryId: destination.libraryId,
+      libraryFolderId: destination.libraryFolderId,
+    });
+
+    expect(response.statusCode, response.body).toBe(401);
+    expect((await request(session.accessToken, 'GET', 'settings')).json()).toMatchObject({ tokenConfigured: false, accountLogin: null });
+    expect(await ctx.db.query.yandexBooksSettings.findFirst({ where: eq(schema.yandexBooksSettings.userId, session.userId) })).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps imported books and source snapshots when a later sync finds an expired credential', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const client = ctx.app.get(YandexBooksClientService);
+    const source = item({ title: 'Credential retention fixture' });
+    vi.spyOn(client, 'getProfile').mockResolvedValue({ id: 'expired-account', login: 'expired-reader', name: 'Expired Reader' });
+    const pages = vi.spyOn(client, 'collectPages').mockImplementation(async function* () {
+      yield await Promise.resolve([source]);
+    });
+    await connect(session.accessToken, destination, 'credential-retention-token');
+    expect((await request(session.accessToken, 'POST', 'sync', {})).statusCode).toBe(202);
+    await waitForSync(session.accessToken, { needsReauth: false, lastError: null });
+    const entry = (await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items[0];
+    const bookId = entry.bookId as number;
+    const sourcesBefore = await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, bookId));
+
+    pages.mockImplementationOnce(async function* () {
+      yield await Promise.resolve([]);
+      throw new UnauthorizedException('Yandex Books authorization expired');
+    });
+    expect((await request(session.accessToken, 'POST', 'sync', {})).statusCode).toBe(202);
+    await waitForSync(session.accessToken, { needsReauth: true, lastError: 'Reconnect your Yandex Books account' });
+
+    const settings = (await request(session.accessToken, 'GET', 'settings')).json();
+    expect(settings).toMatchObject({ tokenConfigured: true, needsReauth: true, syncing: false, lastResult: { imported: 1 } });
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.id, bookId))).toHaveLength(1);
+    expect(await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, bookId))).toEqual(sourcesBefore);
+    expect((await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items).toEqual([
+      expect.objectContaining({ id: entry.id, bookId, state: 'imported', item: expect.objectContaining({ externalId: source.externalId }) }),
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it('reconnects after disconnect without duplicating the existing imported book', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const client = ctx.app.get(YandexBooksClientService);
+    const source = item({ title: 'Reconnect identity fixture', percentage: 20 });
+    vi.spyOn(client, 'getProfile').mockResolvedValue({ id: 'stable-account', login: 'stable-reader', name: 'Stable Reader' });
+    vi.spyOn(client, 'collectPages').mockImplementation(async function* () {
+      yield await Promise.resolve([source]);
+    });
+    await connect(session.accessToken, destination, 'first-stable-token');
+    expect((await request(session.accessToken, 'POST', 'sync', {})).statusCode).toBe(202);
+    await waitForSync(session.accessToken, { needsReauth: false, lastError: null });
+    const first = (await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items[0];
+    const bookId = first.bookId as number;
+
+    expect((await request(session.accessToken, 'DELETE', 'settings')).statusCode).toBe(200);
+    expect((await request(session.accessToken, 'GET', 'settings')).json()).toMatchObject({ tokenConfigured: false, accountLogin: null });
+    expect((await request(session.accessToken, 'GET', 'entries')).json().total).toBe(0);
+    await connect(session.accessToken, destination, 'second-stable-token');
+    source.percentage = 71;
+    expect((await request(session.accessToken, 'POST', 'sync', {})).statusCode).toBe(202);
+    await waitForSync(session.accessToken, { needsReauth: false, lastError: null });
+
+    const refreshed = (await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items;
+    expect(refreshed).toEqual([expect.objectContaining({ bookId, state: 'imported', item: expect.objectContaining({ percentage: 71 }) })]);
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(1);
+    expect((await detail(bookId)).externalReading).toEqual([expect.objectContaining({ externalId: source.externalId, percentage: 71 })]);
+    vi.restoreAllMocks();
+  });
+
+  it('isolates settings, entries, links and imported reading status between authorized non-superusers', async () => {
+    const other = await createUserAndLogin(ctx, { permissions: [Permission.YandexBooksSync, Permission.LibraryUpload] });
+    const [ownDestination, otherDestination] = await Promise.all([
+      createLibraryWithFolder(ctx, { mode: 'book_per_folder' }),
+      createLibraryWithFolder(ctx, { mode: 'book_per_folder' }),
+    ]);
+    await Promise.all([
+      grantLibraryAccess(ctx, session.userId, ownDestination.libraryId, 'editor'),
+      grantLibraryAccess(ctx, other.userId, otherDestination.libraryId, 'editor'),
+    ]);
+    const client = ctx.app.get(YandexBooksClientService);
+    const ownSource = item({ title: 'Owner one fixture' });
+    const otherSource = item({ title: 'Owner two fixture' });
+    vi.spyOn(client, 'getProfile').mockImplementation((token) =>
+      Promise.resolve(
+        token === 'owner-one-token'
+          ? { id: 'owner-one-account', login: 'owner-one-reader', name: 'Owner One' }
+          : { id: 'owner-two-account', login: 'owner-two-reader', name: 'Owner Two' },
+      ),
+    );
+    vi.spyOn(client, 'collectPages').mockImplementation(async function* (token) {
+      yield await Promise.resolve(token === 'owner-one-token' ? [ownSource] : [otherSource]);
+    });
+    await connect(session.accessToken, ownDestination, 'owner-one-token');
+    await connect(other.accessToken, otherDestination, 'owner-two-token');
+    for (const token of [session.accessToken, other.accessToken]) {
+      expect((await request(token, 'POST', 'sync', {})).statusCode).toBe(202);
+      await waitForSync(token, { needsReauth: false, lastError: null });
+    }
+    const ownSettings = (await request(session.accessToken, 'GET', 'settings')).json();
+    const otherSettings = (await request(other.accessToken, 'GET', 'settings')).json();
+    const ownEntry = (await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items[0];
+    const otherEntries = (await request(other.accessToken, 'GET', 'entries?pageSize=10')).json().items;
+
+    expect(ownSettings).toMatchObject({ accountLogin: 'owner-one-reader', libraryId: ownDestination.libraryId, lastResult: { imported: 1 } });
+    expect(otherSettings).toMatchObject({ accountLogin: 'owner-two-reader', libraryId: otherDestination.libraryId, lastResult: { imported: 1 } });
+    expect(otherEntries).toEqual([expect.objectContaining({ item: expect.objectContaining({ externalId: otherSource.externalId }) })]);
+    expect(otherEntries).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: ownEntry.id })]));
+    const link = await request(other.accessToken, 'POST', `entries/${ownEntry.id}/link`, { bookId: otherEntries[0].bookId });
+    expect(link.statusCode, link.body).toBe(404);
+    const hiddenBook = await ctx.app.inject({ method: 'GET', url: `/api/v1/books/${ownEntry.bookId}`, headers: authHeader(other.accessToken) });
+    expect(hiddenBook.statusCode).toBe(404);
+    vi.restoreAllMocks();
+  });
+
+  it('imports catalog metadata and reading status when an optional cover download fails', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const client = ctx.app.get(YandexBooksClientService);
+    const source = item({ title: 'Cover failure fixture', coverUrl: 'https://api.bookmate.ru/covers/failing-cover.jpg' });
+    vi.spyOn(client, 'getProfile').mockResolvedValue({ id: 'cover-account', login: 'cover-reader', name: 'Cover Reader' });
+    vi.spyOn(client, 'collectPages').mockImplementation(async function* () {
+      yield await Promise.resolve([source]);
+    });
+    const coverFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('cover fixture unavailable'));
+    await connect(session.accessToken, destination, 'cover-failure-token');
+    expect((await request(session.accessToken, 'POST', 'sync', {})).statusCode).toBe(202);
+    await waitForSync(session.accessToken, { needsReauth: false, lastError: null });
+
+    const entry = (await request(session.accessToken, 'GET', 'entries?pageSize=10')).json().items[0];
+    const [metadata] = await ctx.db.select().from(schema.bookMetadata).where(eq(schema.bookMetadata.bookId, entry.bookId));
+    const [status] = await ctx.db
+      .select()
+      .from(schema.userBookStatus)
+      .where(and(eq(schema.userBookStatus.userId, session.userId), eq(schema.userBookStatus.bookId, entry.bookId)));
+    expect(entry).toMatchObject({ state: 'imported', item: expect.objectContaining({ title: source.title }) });
+    expect(metadata).toMatchObject({ title: source.title, coverSource: null });
+    expect(status).toMatchObject({ status: 'reading', source: 'auto' });
+    expect(coverFetch).toHaveBeenCalledWith(source.coverUrl, expect.objectContaining({ redirect: 'manual' }));
+    expect((await request(session.accessToken, 'GET', 'settings')).json()).toMatchObject({
+      lastError: null,
+      needsReauth: false,
+      lastResult: { imported: 1 },
+    });
+    vi.restoreAllMocks();
   });
 
   it('previews and imports through HTTP, updates idempotently and fences an in-flight disconnect', async () => {

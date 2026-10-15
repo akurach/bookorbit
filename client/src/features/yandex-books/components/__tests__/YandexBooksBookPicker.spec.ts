@@ -49,6 +49,6 @@ describe('YandexBooksBookPicker', () => {
 
     expect(wrapper.text()).not.toContain('Imported duplicate')
     expect(wrapper.text()).toContain('Original book')
-    expect(wrapper.text()).toContain('1 file')
+    expect(wrapper.text()).toContain('Attached files: 1')
   })
 })

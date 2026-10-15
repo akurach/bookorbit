@@ -1,5 +1,7 @@
 # Yandex Books metadata provider / Источник метаданных Яндекс Книги
 
+Development: [test coverage and fork CI](YANDEX_BOOKS_TESTING.md).
+
 Personal library import: [English](YANDEX_BOOKS_READING.md) /
 [Импорт книг, статусов и прогресса](YANDEX_BOOKS_READING.ru.md).
 

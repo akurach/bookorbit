@@ -1,0 +1,95 @@
+name: Yandex Integration (Fork)
+run-name: Yandex integration - ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - "BO-1817-*"
+      - "BO-1818-*"
+      - "feat/yandex-books-*"
+  workflow_dispatch:
+
+concurrency:
+  group: yandex-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Select and validate suites
+    if: github.repository == 'akurach/bookorbit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+      - name: Test suite discovery and selection
+        run: node --test scripts/e2e/select-yandex-matrix.test.mjs
+      - name: Select affected integrations
+        id: matrix
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_SHA: ${{ github.event.before }}
+          GITHUB_HEAD_SHA: ${{ github.sha }}
+        run: echo "matrix=$(node scripts/e2e/select-yandex-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Fork quality checks
+    needs: setup
+    if: needs.setup.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      JWT_SECRET: yandex-ci-fixture-secret
+      DATABASE_URL: postgres://bookorbit:bookorbit@localhost:5432/bookorbit_e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Verify lint, types and unit tests
+        run: pnpm verify
+
+  e2e:
+    needs: setup
+    if: needs.setup.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    permissions:
+      contents: read
+      checks: write
+    uses: ./.github/workflows/e2e-runner.yml
+    with:
+      suite-id: ${{ matrix.suite.id }}
+      check-name: "Yandex E2E - ${{ matrix.suite.name }}"
+      artifact-name: "yandex-${{ matrix.suite.id }}-report"
+      job-timeout-minutes: ${{ matrix.suite.timeout }}
+
+  gate:
+    name: Yandex integration gate
+    needs: [setup, quality, e2e]
+    if: always() && github.repository == 'akurach/bookorbit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful selected checks
+        env:
+          SETUP_RESULT: ${{ needs.setup.result }}
+          MATRIX: ${{ needs.setup.outputs.matrix }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          test "$SETUP_RESULT" = success
+          if [ "$MATRIX" != '[]' ]; then
+            test "$QUALITY_RESULT" = success
+            test "$E2E_RESULT" = success
+          fi

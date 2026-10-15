@@ -95,3 +95,6 @@ scheduling belong to `server/src/modules/yandex-books/`. Fileless catalog and
 reading snapshots belong to the public `ExternalCatalogService` in the book module.
 
 Use anonymized fixtures in tests. Never commit personal API dumps or tokens.
+
+See [test coverage and fork CI](YANDEX_BOOKS_TESTING.md) for the registered E2E
+suites, local commands, and validation boundaries.

@@ -115,20 +115,20 @@ export interface E2EContext {
 /**
  * Scans write and prune covers under APP_DATA_PATH, which `.env` points at the developer's own
  * data folder. Suites that scan and do not set their own path pass `isolateAppData`. Suites that
- * upload files pass `multipart`, which `main.ts` registers for the real server.
+ * upload files pass `multipart`, which `main.ts` registers for the real server. Most suites use
+ * the metadata noop; metadata write scenarios opt into the real service.
  */
-export async function createE2EContext(options: { isolateAppData?: boolean; multipart?: boolean } = {}): Promise<E2EContext> {
+export async function createE2EContext(options: { isolateAppData?: boolean; multipart?: boolean; realMetadata?: boolean } = {}): Promise<E2EContext> {
   let isolatedAppData: E2EContext['isolatedAppData'] = null;
   if (options.isolateAppData) {
     isolatedAppData = { path: await mkdtemp(join(tmpdir(), 'bookorbit-e2e-data-')), previous: process.env.APP_DATA_PATH };
     process.env.APP_DATA_PATH = isolatedAppData.path;
   }
-  const moduleFixture = await Test.createTestingModule({
+  let moduleBuilder = Test.createTestingModule({
     imports: [AppModule],
-  })
-    .overrideProvider(MetadataService)
-    .useValue(makeMetadataNoopMock())
-    .compile();
+  });
+  if (!options.realMetadata) moduleBuilder = moduleBuilder.overrideProvider(MetadataService).useValue(makeMetadataNoopMock());
+  const moduleFixture = await moduleBuilder.compile();
 
   const app = moduleFixture.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
   app.setGlobalPrefix('api/v1');
