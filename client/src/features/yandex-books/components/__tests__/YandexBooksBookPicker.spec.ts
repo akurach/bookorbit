@@ -28,4 +28,27 @@ describe('YandexBooksBookPicker', () => {
     expect(api).toHaveBeenCalledWith('/api/v1/libraries/7/books', expect.objectContaining({ method: 'POST', body: expect.stringContaining('atlas') }))
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([{ id: 31, title: 'The Atlas Six', authors: ['Olivie Blake'] }])
   })
+
+  it('excludes the currently linked imported card from replacement choices', async () => {
+    vi.mocked(api).mockResolvedValueOnce(
+      response({
+        items: [
+          { id: 31, title: 'Imported duplicate', authors: ['Author'], files: [] },
+          { id: 42, title: 'Original book', authors: ['Author'], files: [{ id: 1 }] },
+        ],
+        total: 2,
+        page: 0,
+        size: 10,
+      }),
+    )
+    const wrapper = mount(YandexBooksBookPicker, { props: { libraryId: 7, modelValue: null, excludeBookId: 31 } })
+
+    await wrapper.get('input').setValue('author')
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Imported duplicate')
+    expect(wrapper.text()).toContain('Original book')
+    expect(wrapper.text()).toContain('1 file')
+  })
 })

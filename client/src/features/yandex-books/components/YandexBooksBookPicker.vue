@@ -5,7 +5,15 @@ import { Loader2, Search, X } from '@lucide/vue'
 import type { BookCard, BookQuery, BooksPage } from '@bookorbit/types'
 import { api } from '@/lib/api'
 
-const props = defineProps<{ libraryId: number }>()
+const props = withDefaults(
+  defineProps<{
+    libraryId: number
+    /** The Yandex-imported card currently linked to the entry must not be its own replacement. */
+    excludeBookId?: number | null
+    disabled?: boolean
+  }>(),
+  { excludeBookId: null, disabled: false },
+)
 const model = defineModel<BookCard | null>({ required: true })
 const { t } = useI18n()
 const query = ref('')
@@ -40,7 +48,7 @@ async function search(): Promise<void> {
       if (current === requestId) error.value = true
       return
     }
-    options.value = ((await res.json()) as BooksPage).items
+    options.value = ((await res.json()) as BooksPage).items.filter((book) => book.id !== props.excludeBookId)
     activeIndex.value = -1
   } catch {
     if (current === requestId) {
@@ -53,6 +61,7 @@ async function search(): Promise<void> {
 }
 
 function handleInput(event: Event): void {
+  if (props.disabled) return
   query.value = (event.target as HTMLInputElement).value
   open.value = true
   requestId += 1
@@ -78,6 +87,7 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 function handleFocus(): void {
+  if (props.disabled) return
   open.value = true
 }
 
@@ -108,6 +118,7 @@ onUnmounted(() => {
     <input
       :value="selectedLabel || query"
       type="text"
+      :disabled="props.disabled"
       :placeholder="t('yandexBooks.entries.searchExisting')"
       class="h-8 w-full rounded border border-border bg-background pl-2.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
       @focus="handleFocus"
@@ -120,6 +131,7 @@ onUnmounted(() => {
       type="button"
       :aria-label="t('yandexBooks.entries.clearSelection')"
       class="absolute right-1 top-1 inline-flex size-6 items-center justify-center text-muted-foreground"
+      :disabled="props.disabled"
       @mousedown.prevent="clear"
     >
       <X class="size-3.5" />
@@ -143,7 +155,11 @@ onUnmounted(() => {
         @mousedown.prevent="choose(book)"
       >
         <span class="block truncate font-medium">{{ book.title ?? t('yandexBooks.entries.untitled') }}</span>
-        <span class="block truncate text-muted-foreground">{{ book.authors.join(', ') }}</span>
+        <span class="block truncate text-muted-foreground">
+          {{ book.authors.join(', ') }}
+          <template v-if="book.files?.length"> · {{ t('yandexBooks.entries.filesAttached', { count: book.files.length }) }}</template>
+          <template v-else-if="book.catalogMediaKind"> · {{ t(`yandexBooks.media.${book.catalogMediaKind}`) }}</template>
+        </span>
       </button>
     </div>
   </div>

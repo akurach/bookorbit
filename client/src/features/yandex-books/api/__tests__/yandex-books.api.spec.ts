@@ -11,6 +11,7 @@ import {
   applyYandexBooksImport,
   fetchYandexBooksEntries,
   fetchYandexBooksSettings,
+  linkYandexBooksEntry,
   resolveYandexBooksEntry,
   startYandexBooksSync,
   upsertYandexBooksSettings,
@@ -76,6 +77,17 @@ describe('yandex-books.api', () => {
       2,
       '/api/v1/yandex-books/entries/7/resolve',
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ policy: 'local' }) }),
+    )
+  })
+
+  it('uses the same link endpoint to repair an imported duplicate', async () => {
+    mockApi.mockResolvedValueOnce(jsonResponse({}))
+
+    await linkYandexBooksEntry(7, 42)
+
+    expect(mockApi).toHaveBeenCalledWith(
+      '/api/v1/yandex-books/entries/7/link',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ bookId: 42 }) }),
     )
   })
 

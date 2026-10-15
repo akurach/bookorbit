@@ -56,7 +56,7 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     process.env.YANDEX_BOOKS_ENCRYPTION_KEY = 'a1'.repeat(32);
     ctx = await createAuthorizationMatrixE2EContext();
     catalog = ctx.app.get(ExternalCatalogService);
-    session = await createUserAndLogin(ctx, { permissions: [Permission.YandexBooksSync, Permission.LibraryUpload] });
+    session = await createUserAndLogin(ctx, { permissions: [Permission.YandexBooksSync, Permission.LibraryUpload, Permission.LibraryDeleteBooks] });
     viewer = await createUserAndLogin(ctx);
   });
 
@@ -81,7 +81,7 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
   async function attach(bookId: number) {
     const boundary = `----bookorbit-yandex-${randomUUID()}`;
     const body = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture.fb2"\r\nContent-Type: application/octet-stream\r\n\r\n${buildFb2Fixture()}\r\n--${boundary}--\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture-${bookId}.fb2"\r\nContent-Type: application/octet-stream\r\n\r\n${buildFb2Fixture({ title: `Fixture ${bookId}` })}\r\n--${boundary}--\r\n`,
     );
     return ctx.app.inject({
       method: 'POST',
@@ -180,6 +180,150 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     },
   );
 
+  async function localBook(destination: Awaited<ReturnType<typeof createLibraryWithFolder>>, source: ExternalCatalogItem) {
+    const imported = await catalog.importItem(await user(), destination, { ...source, title: `Fixture ${randomUUID()}` });
+    expect((await attach(imported.bookId)).statusCode).toBe(201);
+    await ctx.db.delete(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, imported.bookId));
+    await ctx.db.delete(schema.userBookStatus).where(eq(schema.userBookStatus.bookId, imported.bookId));
+    await ctx.db.update(schema.bookMetadata).set({ title: source.title, yandexBooksId: null }).where(eq(schema.bookMetadata.bookId, imported.bookId));
+    return imported.bookId;
+  }
+
+  async function importedEntry(bookId: number, source: ExternalCatalogItem) {
+    const [entry] = await ctx.db
+      .insert(schema.yandexBooksEntries)
+      .values({
+        userId: session.userId,
+        accountId: 'dedup-fixture',
+        externalId: source.externalId,
+        mediaKind: source.mediaKind,
+        snapshot: source,
+        bookId,
+        state: 'imported',
+        generation: randomUUID(),
+      })
+      .returning();
+    return entry;
+  }
+
+  it('matches a pre-existing local file without a Yandex id and preserves metadata and local positions', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const source = item({ title: 'Морана и Тень. Видящий', authors: ['Лия Арден'], language: 'ru' });
+    const bookId = await localBook(destination, source);
+    const [file] = await ctx.db.select().from(schema.bookFiles).where(eq(schema.bookFiles.bookId, bookId));
+    await ctx.db.insert(schema.readingProgress).values({ userId: session.userId, bookFileId: file.id, percentage: 12, cfi: 'local-position' });
+    const before = await ctx.db.select().from(schema.bookMetadata).where(eq(schema.bookMetadata.bookId, bookId));
+    const imported = await catalog.importItem(await user(), destination, { ...source, title: 'МОРАНА И ТЕНЬ: ВИДЯЩИЙ', percentage: 90 });
+    expect(imported).toEqual({ bookId, created: false, statusConflict: false });
+    expect(await ctx.db.select().from(schema.bookMetadata).where(eq(schema.bookMetadata.bookId, bookId))).toEqual(before);
+    const book = await detail(bookId);
+    expect(book.files).toHaveLength(1);
+    expect(book.externalReading?.[0]?.percentage).toBe(90);
+    expect((await ctx.db.select().from(schema.readingProgress).where(eq(schema.readingProgress.bookFileId, file.id)))[0].cfi).toBe('local-position');
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(1);
+    expect((await catalog.importItem(await user(), destination, source)).bookId).toBe(bookId);
+  });
+
+  it('reuses an equivalent ISBN-10 and refuses two equally matching local copies', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const source = item({ title: 'ISBN fixture', isbn: '978-0-306-40615-7' });
+    const bookId = await localBook(destination, source);
+    await ctx.db.update(schema.bookMetadata).set({ isbn10: '0306406152', isbn13: null }).where(eq(schema.bookMetadata.bookId, bookId));
+    expect((await catalog.importItem(await user(), destination, { ...source, title: 'Alternate catalog title' })).bookId).toBe(bookId);
+    await ctx.db.delete(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, bookId));
+    const [copy] = await ctx.db
+      .insert(schema.books)
+      .values({
+        libraryId: destination.libraryId,
+        libraryFolderId: destination.libraryFolderId,
+        folderPath: '/duplicate-copy',
+        isFileless: true,
+        catalogMediaKind: 'ebook',
+      })
+      .returning();
+    await ctx.db.insert(schema.bookMetadata).values({ bookId: copy.id, title: 'Another copy', isbn13: '9780306406157' });
+    await expect(catalog.importItem(await user(), destination, source)).rejects.toThrow('More than one');
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(2);
+  });
+
+  it('refuses ambiguous authors without making a duplicate, and lets an explicit link resolve the match', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const source = item({ title: 'Гарри Поттер и методы рационального мышления', authors: ['Элиезер Юдковский'], language: 'ru' });
+    const bookId = await localBook(destination, source);
+    const remote = { ...source, authors: ['Элиезер Юдковски'] };
+    await expect(catalog.importItem(await user(), destination, remote)).rejects.toThrow('Link');
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(1);
+    expect((await catalog.importItem(await user(), destination, remote, bookId)).bookId).toBe(bookId);
+    const audio = await catalog.importItem(await user(), destination, { ...source, mediaKind: 'audiobook' });
+    expect(audio.bookId).not.toBe(bookId);
+  });
+
+  it('repairs an existing empty duplicate atomically and keeps the physical book, manual status and progress', async () => {
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+    const source = item({ title: 'Repair fixture' });
+    // Simulate the previous importer: the fileless card predates the local copy.
+    const duplicate = await catalog.importItem(await user(), destination, source);
+    const entry = await importedEntry(duplicate.bookId, source);
+    const bookId = await localBook(destination, { ...source, externalId: randomUUID() });
+    await ctx.db.insert(schema.userBookStatus).values({ userId: session.userId, bookId, status: 'read', source: 'manual' });
+    const [file] = await ctx.db.select().from(schema.bookFiles).where(eq(schema.bookFiles.bookId, bookId));
+    await ctx.db.insert(schema.readingProgress).values({ userId: session.userId, bookFileId: file.id, percentage: 99, cfi: 'keep-me' });
+    const before = await ctx.db.select().from(schema.bookFiles).where(eq(schema.bookFiles.bookId, bookId));
+    await expect(catalog.relinkItem(await user(), destination, source, duplicate.bookId, duplicate.bookId, entry.id, 'safe')).rejects.toThrow(
+      'different',
+    );
+    const moved = await catalog.relinkItem(await user(), destination, source, duplicate.bookId, bookId, entry.id, 'safe');
+    expect(moved).toEqual({ bookId, statusConflict: true });
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.id, duplicate.bookId))).toEqual([]);
+    expect(await ctx.db.select().from(schema.bookFiles).where(eq(schema.bookFiles.bookId, bookId))).toEqual(before);
+    expect((await detail(bookId)).readStatus?.status).toBe('read');
+    expect((await ctx.db.select().from(schema.readingProgress).where(eq(schema.readingProgress.bookFileId, file.id)))[0].cfi).toBe('keep-me');
+    const [saved] = await ctx.db.select().from(schema.yandexBooksEntries).where(eq(schema.yandexBooksEntries.id, entry.id));
+    expect(saved.bookId).toBe(bookId);
+    const [sourceRow] = await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.externalId, source.externalId));
+    expect(sourceRow.bookId).toBe(bookId);
+    expect(sourceRow.lastAppliedStatusAt).toBeNull();
+    expect((await catalog.importItem(await user(), destination, source)).bookId).toBe(bookId);
+  });
+
+  it.each(['file', 'note', 'metadata', 'manualStatus', 'otherUser', 'permission'] as const)(
+    'preserves an imported card with %s when relinking is unsafe',
+    async (reason) => {
+      const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+      await grantLibraryAccess(ctx, session.userId, destination.libraryId, 'editor');
+      const source = item({ title: `Protected ${reason}` });
+      const duplicate = await catalog.importItem(await user(), destination, source);
+      const entry = await importedEntry(duplicate.bookId, source);
+      const bookId = await localBook(destination, { ...source, externalId: randomUUID() });
+      if (reason === 'file') expect((await attach(duplicate.bookId)).statusCode).toBe(201);
+      if (reason === 'note')
+        await ctx.db.insert(schema.userBookNotes).values({ userId: session.userId, bookId: duplicate.bookId, note: 'Keep my note' });
+      if (reason === 'metadata')
+        await ctx.db.update(schema.bookMetadata).set({ title: 'Edited title' }).where(eq(schema.bookMetadata.bookId, duplicate.bookId));
+      if (reason === 'manualStatus')
+        await ctx.db
+          .update(schema.userBookStatus)
+          .set({ status: 'read', source: 'manual' })
+          .where(eq(schema.userBookStatus.bookId, duplicate.bookId));
+      if (reason === 'otherUser')
+        await ctx.db.insert(schema.userBookStatus).values({ userId: viewer.userId, bookId: duplicate.bookId, status: 'read' });
+      const actor = await user();
+      if (reason === 'permission') actor.permissions = actor.permissions.filter((permission) => permission !== Permission.LibraryDeleteBooks);
+      await expect(catalog.relinkItem(actor, destination, source, duplicate.bookId, bookId, entry.id, 'safe')).rejects.toThrow();
+      expect(await ctx.db.select().from(schema.books).where(eq(schema.books.id, duplicate.bookId))).toHaveLength(1);
+      expect(
+        (await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.externalId, source.externalId)))[0].bookId,
+      ).toBe(duplicate.bookId);
+      expect((await ctx.db.select().from(schema.yandexBooksEntries).where(eq(schema.yandexBooksEntries.id, entry.id)))[0].bookId).toBe(
+        duplicate.bookId,
+      );
+    },
+  );
+
   it('requires the new permission at the HTTP boundary', async () => {
     const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/yandex-books/settings', headers: authHeader(viewer.accessToken) });
     expect(response.statusCode).toBe(403);
@@ -235,6 +379,14 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     const imported = (await request('GET', 'entries?pageSize=10')).json();
     const first = imported.items.find((entry: { item: ExternalCatalogItem }) => entry.item.externalId === source[0]!.externalId);
     expect((await detail(first.bookId)).externalReading?.[0]?.percentage).toBe(66);
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(3);
+
+    const existingLocalBook = await localBook(destination, { ...source[0]!, externalId: randomUUID() });
+    const relinked = await request('POST', `entries/${first.id}/link`, { bookId: existingLocalBook });
+    expect(relinked.statusCode, relinked.body).toBe(201);
+    expect(relinked.json().bookId).toBe(existingLocalBook);
+    expect((await detail(existingLocalBook)).externalReading?.[0]?.percentage).toBe(66);
+    expect(await ctx.db.select().from(schema.books).where(eq(schema.books.id, first.bookId))).toEqual([]);
     expect(await ctx.db.select().from(schema.books).where(eq(schema.books.libraryId, destination.libraryId))).toHaveLength(3);
 
     let unblock!: () => void;
