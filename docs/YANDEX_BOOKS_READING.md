@@ -82,7 +82,11 @@ metadata, notes and reader positions. A conflicting local status still needs rev
 If the placeholder has a file, edited metadata/status, notes, collections or other
 references (including another user's data), the operation refuses to delete it.
 Review those books manually. Selecting the same card is never a deletion operation.
-This is not a general-purpose merge of two books with local history.
+BookOrbit may automatically create one untouched migration reading attempt from
+an imported status on restart. That attempt is moved without changing its ID or
+dates if the target has no reading attempts. Manually created/edited attempts or
+two existing histories still require manual review. Search embeddings are derived
+cache data. This is not a general-purpose merge of books with local history.
 
 ## Development boundaries
 

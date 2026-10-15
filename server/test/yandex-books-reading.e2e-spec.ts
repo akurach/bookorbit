@@ -276,6 +276,14 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     await expect(catalog.relinkItem(await user(), destination, source, duplicate.bookId, duplicate.bookId, entry.id, 'safe')).rejects.toThrow(
       'different',
     );
+    await ctx.db
+      .update(schema.bookMetadata)
+      .set({ embedding: Array.from({ length: 256 }, () => 0) })
+      .where(eq(schema.bookMetadata.bookId, duplicate.bookId));
+    const [migratedAttempt] = await ctx.db
+      .insert(schema.readingAttempts)
+      .values({ userId: session.userId, bookId: duplicate.bookId, origin: 'migration', startedOn: '2025-01-02' })
+      .returning();
     const moved = await catalog.relinkItem(await user(), destination, source, duplicate.bookId, bookId, entry.id, 'safe');
     expect(moved).toEqual({ bookId, statusConflict: true });
     expect(await ctx.db.select().from(schema.books).where(eq(schema.books.id, duplicate.bookId))).toEqual([]);
@@ -287,10 +295,12 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     const [sourceRow] = await ctx.db.select().from(schema.externalBookSources).where(eq(schema.externalBookSources.externalId, source.externalId));
     expect(sourceRow.bookId).toBe(bookId);
     expect(sourceRow.lastAppliedStatusAt).toBeNull();
+    const [retainedAttempt] = await ctx.db.select().from(schema.readingAttempts).where(eq(schema.readingAttempts.id, migratedAttempt.id));
+    expect(retainedAttempt).toEqual({ ...migratedAttempt, bookId });
     expect((await catalog.importItem(await user(), destination, source)).bookId).toBe(bookId);
   });
 
-  it.each(['file', 'note', 'metadata', 'manualStatus', 'otherUser', 'permission'] as const)(
+  it.each(['file', 'note', 'metadata', 'manualStatus', 'otherUser', 'permission', 'manualAttempt', 'editedAttempt', 'targetAttempt'] as const)(
     'preserves an imported card with %s when relinking is unsafe',
     async (reason) => {
       const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
@@ -311,6 +321,18 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
           .where(eq(schema.userBookStatus.bookId, duplicate.bookId));
       if (reason === 'otherUser')
         await ctx.db.insert(schema.userBookStatus).values({ userId: viewer.userId, bookId: duplicate.bookId, status: 'read' });
+      if (reason === 'manualAttempt')
+        await ctx.db.insert(schema.readingAttempts).values({ userId: session.userId, bookId: duplicate.bookId, origin: 'manual' });
+      if (reason === 'editedAttempt')
+        await ctx.db
+          .insert(schema.readingAttempts)
+          .values({ userId: session.userId, bookId: duplicate.bookId, origin: 'migration', updatedAt: new Date(Date.now() + 1000) });
+      if (reason === 'targetAttempt') {
+        await ctx.db.insert(schema.readingAttempts).values([
+          { userId: session.userId, bookId: duplicate.bookId, origin: 'migration' },
+          { userId: session.userId, bookId, origin: 'manual' },
+        ]);
+      }
       const actor = await user();
       if (reason === 'permission') actor.permissions = actor.permissions.filter((permission) => permission !== Permission.LibraryDeleteBooks);
       await expect(catalog.relinkItem(actor, destination, source, duplicate.bookId, bookId, entry.id, 'safe')).rejects.toThrow();

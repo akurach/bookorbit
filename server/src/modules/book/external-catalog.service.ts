@@ -94,7 +94,7 @@ export class ExternalCatalogService {
           .for('update');
         const source = await this.findSource(tx, user.id, item, true);
         if (!source || source.bookId !== previousBookId) throw new ConflictException('The source link changed. Reload the entries and try again.');
-        await assertPristineExternalPlaceholder(tx, user.id, previousBookId, entryId, item, source);
+        const migratedAttempt = await assertPristineExternalPlaceholder(tx, user.id, previousBookId, entryId, targetBookId, item, source);
         const statusConflict = await this.upsertSourceAndStatus(tx, user.id, targetBookId, item, source, statusPolicy);
         await tx
           .update(schema.yandexBooksEntries)
@@ -105,6 +105,12 @@ export class ExternalCatalogService {
             updatedAt: new Date(),
           })
           .where(and(eq(schema.yandexBooksEntries.id, entryId), eq(schema.yandexBooksEntries.userId, user.id)));
+        if (migratedAttempt) {
+          await tx
+            .update(schema.readingAttempts)
+            .set({ bookId: targetBookId, updatedAt: migratedAttempt.updatedAt })
+            .where(eq(schema.readingAttempts.id, migratedAttempt.id));
+        }
         await tx.delete(books).where(eq(books.id, previousBookId));
         return { bookId: targetBookId, statusConflict };
       });

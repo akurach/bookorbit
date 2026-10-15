@@ -5,10 +5,18 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { ExternalCatalogItem } from '@bookorbit/types';
 import * as schema from '../../db/schema';
 
-const { books, bookMetadata, bookAuthors, authors, bookCovers, externalBookSources, userBookStatus, yandexBooksEntries } = schema;
+const { books, bookMetadata, bookAuthors, authors, bookCovers, externalBookSources, userBookStatus, yandexBooksEntries, readingAttempts } = schema;
 type Transaction = Parameters<Parameters<NodePgDatabase<typeof schema>['transaction']>[0]>[0];
 const protectedMessage = 'This imported card has files, local changes or other references. Keep it and review the books before changing the link.';
-const explicitlyChecked = new Set<PgTable>([bookMetadata, bookAuthors, bookCovers, externalBookSources, userBookStatus, yandexBooksEntries]);
+const explicitlyChecked = new Set<PgTable>([
+  bookMetadata,
+  bookAuthors,
+  bookCovers,
+  externalBookSources,
+  userBookStatus,
+  yandexBooksEntries,
+  readingAttempts,
+]);
 
 // Fail closed for new features referencing books, including references that cascade on deletion.
 const protectedReferences = Object.values(schema).flatMap((table) => {
@@ -26,9 +34,10 @@ export async function assertPristineExternalPlaceholder(
   userId: number,
   bookId: number,
   entryId: number,
+  targetBookId: number,
   item: ExternalCatalogItem,
   source: typeof externalBookSources.$inferSelect,
-): Promise<void> {
+): Promise<typeof readingAttempts.$inferSelect | null> {
   const reject = () => {
     throw new BadRequestException(protectedMessage);
   };
@@ -49,7 +58,8 @@ export async function assertPristineExternalPlaceholder(
     lockedFields: [],
   };
   for (const [key, value] of Object.entries(metadata)) {
-    if (['updatedAt', 'coverUpdatedAt'].includes(key)) continue;
+    // The search index is derived automatically when a catalog card is viewed.
+    if (['updatedAt', 'coverUpdatedAt', 'embedding'].includes(key)) continue;
     if (key === 'coverSource') {
       if (value !== null && value !== 'extracted') reject();
       continue;
@@ -82,6 +92,29 @@ export async function assertPristineExternalPlaceholder(
     )
   )
     reject();
+  // Startup backfill materializes a source status as one migration attempt. Preserve
+  // that row when correcting its book link, but never combine two local histories.
+  const attempts = await tx.select().from(readingAttempts).where(eq(readingAttempts.bookId, bookId)).limit(2).for('update');
+  const migratedAttempt = attempts[0] ?? null;
+  if (
+    attempts.length > 1 ||
+    (migratedAttempt &&
+      (migratedAttempt.userId !== userId ||
+        migratedAttempt.origin !== 'migration' ||
+        migratedAttempt.deletedAt !== null ||
+        migratedAttempt.externalProvider !== null ||
+        migratedAttempt.externalId !== null ||
+        migratedAttempt.createdAt.getTime() !== migratedAttempt.updatedAt.getTime()))
+  )
+    reject();
+  if (migratedAttempt) {
+    const existing = await tx
+      .select({ id: readingAttempts.id })
+      .from(readingAttempts)
+      .where(and(eq(readingAttempts.bookId, targetBookId), eq(readingAttempts.userId, userId)))
+      .limit(1);
+    if (existing.length) reject();
+  }
   const [references] = await tx
     .select({
       found: sql<boolean>`(${sql.join(
@@ -98,4 +131,5 @@ export async function assertPristineExternalPlaceholder(
     .from(yandexBooksEntries)
     .where(and(eq(yandexBooksEntries.id, entryId), eq(yandexBooksEntries.bookId, bookId), eq(yandexBooksEntries.userId, userId)));
   if (!entry) reject();
+  return migratedAttempt;
 }
