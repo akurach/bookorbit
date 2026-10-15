@@ -13,8 +13,10 @@ const state = vi.hoisted(() => ({
 const settings = ref<YandexBooksSettings | null>(null)
 const entries = ref<{ items: YandexBooksEntry[]; total: number; page: number; pageSize: number } | null>(null)
 
-vi.mock('vue-sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('@/features/auth/composables/usePermissions', () => ({ usePermissions: () => ({ hasPermission: () => true }) }))
+vi.mock('vue-sonner', () => ({ toast: { success: vi.fn<(message: string) => void>(), error: vi.fn<(message: string) => void>() } }))
+vi.mock('@/features/auth/composables/usePermissions', () => ({
+  usePermissions: () => ({ hasPermission: vi.fn<(permission: string) => boolean>().mockReturnValue(true) }),
+}))
 vi.mock('@/features/library/composables/useLibraries', () => ({
   useLibraries: () => ({
     libraries: ref([{ id: 7, name: 'Books', type: 'books', folders: [{ id: 9, path: '/books' }] }]),
@@ -32,14 +34,14 @@ vi.mock('../../composables/useYandexBooks', () => ({
     error: ref(null),
     connected: ref(true),
     loadSettings: state.loadSettings,
-    saveSettings: vi.fn(),
-    disconnect: vi.fn(),
+    saveSettings: vi.fn<(payload: unknown) => Promise<boolean>>(),
+    disconnect: vi.fn<() => Promise<boolean>>(),
     loadEntries: state.loadEntries,
-    startSync: vi.fn(),
-    importEntries: vi.fn(),
-    resolveEntry: vi.fn(),
+    startSync: vi.fn<(preview?: boolean) => Promise<boolean>>(),
+    importEntries: vi.fn<(entryIds?: number[]) => Promise<boolean>>(),
+    resolveEntry: vi.fn<(entryId: number, policy: string) => Promise<boolean>>(),
     linkEntry: state.linkEntry,
-    stopPolling: vi.fn(),
+    stopPolling: vi.fn<() => void>(),
   }),
 }))
 
