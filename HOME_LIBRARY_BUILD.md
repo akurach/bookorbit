@@ -8,5 +8,5 @@ when building the client. This build-time value avoids a self-referential source
 commit hash. Keep the original license and attribution notices.
 
 No runtime dependencies differ from upstream 3.4.0. Runtime version is
-`3.4.0-yandex.3`. The deployment uses the original ARM64 runtime with the built
+`3.4.0-yandex.4`. The deployment uses the original ARM64 runtime with the built
 server, shared types, client and generated migrations replaced.
