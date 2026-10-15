@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BookOpen } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -85,7 +86,9 @@ onMounted(async () => {
 <template>
   <div class="min-h-screen flex flex-col items-center justify-center gap-3 bg-background px-4">
     <div class="w-full max-w-sm text-center">
-      <h1 class="text-2xl font-serif font-semibold text-foreground mb-6">Book<span class="text-primary"> Orbit</span></h1>
+      <h1 class="inline-flex items-center gap-2 text-2xl font-serif font-semibold text-foreground mb-6">
+        <BookOpen :size="23" class="text-primary" aria-hidden="true" />Home Library
+      </h1>
 
       <div v-if="!error" class="space-y-3">
         <div class="flex justify-center">

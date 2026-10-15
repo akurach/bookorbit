@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { BookOpen } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { LoginErrorCode, type OidcProviderPublic } from '@bookorbit/types'
@@ -89,7 +90,9 @@ async function handleOidcLogin(provider: OidcProviderPublic) {
 
     <div class="login-card relative z-10 w-full max-w-sm rounded-2xl p-8">
       <div class="text-center mb-8 animate-fade-up">
-        <h1 class="text-2xl font-serif font-semibold text-foreground">Book<span class="text-primary"> Orbit</span></h1>
+        <h1 class="inline-flex items-center gap-2 text-2xl font-serif font-semibold text-foreground">
+          <BookOpen :size="23" class="text-primary" aria-hidden="true" />Home Library
+        </h1>
         <p class="text-sm text-muted-foreground mt-1">{{ t('auth.login.subtitle') }}</p>
       </div>
 

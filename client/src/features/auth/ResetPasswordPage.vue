@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BookOpen } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -60,7 +61,9 @@ async function handleSubmit() {
 
     <div class="login-card relative z-10 w-full max-w-sm rounded-2xl p-8">
       <div class="text-center mb-8">
-        <h1 class="text-2xl font-serif font-semibold text-foreground">Book<span class="text-primary"> Orbit</span></h1>
+        <h1 class="inline-flex items-center gap-2 text-2xl font-serif font-semibold text-foreground">
+          <BookOpen :size="23" class="text-primary" aria-hidden="true" />Home Library
+        </h1>
         <p class="text-sm text-muted-foreground mt-1">{{ t('auth.resetPassword.subtitle') }}</p>
       </div>
 

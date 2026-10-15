@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { Aperture, BookCopy, CircleArrowUp, FolderOpen, Heart, Orbit, Podcast } from '@lucide/vue'
+import { Aperture, BookCopy, BookOpen, CircleArrowUp, FolderOpen, Heart, Podcast } from '@lucide/vue'
 import { APP_FEATURES, Permission, type Library, type LibraryType, type MediaType } from '@bookorbit/types'
 import { formatCompactNumber, formatNumber } from '@/i18n/formatters'
 import { entityCount } from '@/lib/entity-count'
@@ -325,10 +325,10 @@ onUnmounted(() => stopLibraryUploadListener())
           class="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--shell-radius) bg-primary ring-1 ring-(--shell-accent-line)"
           aria-hidden="true"
         >
-          <Orbit :size="21" class="text-primary-foreground" />
+          <BookOpen :size="21" class="text-primary-foreground" />
         </div>
         <span class="truncate font-serif text-[18px] font-semibold leading-none text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-          Book<span class="text-primary"> Orbit</span>
+          Home Library
         </span>
       </RouterLink>
       <SidebarModeSwitch v-if="showModeSwitch" :mode="mode" :rail="isRail" class="mt-1.5" @switch="handleModeSwitch" />
