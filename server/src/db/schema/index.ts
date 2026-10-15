@@ -36,6 +36,8 @@ export * from './fonts';
 export * from './koreader';
 export * from './achievements';
 export * from './hardcover';
+export * from './external-book-sources';
+export * from './yandex-books';
 export * from './readwise';
 export * from './storygraph';
 export * from './shared-reading-insights';

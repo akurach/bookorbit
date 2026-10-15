@@ -27,6 +27,7 @@ import { DeliveryArtifactRepository } from './delivery-artifact.repository';
 import { DeliveryHashRegistrationService } from './delivery-hash-registration.service';
 import { DeliverySelectionService } from './delivery-selection.service';
 import { AudiolessEpubService } from './audioless-epub.service';
+import { ExternalCatalogService } from './external-catalog.service';
 
 describe('BookModule', () => {
   it('imports the shared registry used by the file watcher', () => {
@@ -48,6 +49,7 @@ describe('BookModule', () => {
       DeliveryArtifactRepository,
       DeliverySelectionService,
       DeliveryHashRegistrationService,
+      ExternalCatalogService,
     ]);
     // AudiolessEpubService is exported so the Kobo download path can strip narration itself,
     // without routing through BookService and its RequestUser-based access checks.
@@ -58,6 +60,7 @@ describe('BookModule', () => {
       AudiolessEpubService,
       DeliveryArtifactService,
       DeliverySelectionService,
+      ExternalCatalogService,
     ]);
   });
 

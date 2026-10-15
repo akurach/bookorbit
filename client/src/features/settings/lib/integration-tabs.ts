@@ -1,6 +1,6 @@
 import { Permission } from '@bookorbit/types'
 
-export const INTEGRATION_TABS = ['hardcover', 'readwise', 'storygraph'] as const
+export const INTEGRATION_TABS = ['hardcover', 'yandexBooks', 'readwise', 'storygraph'] as const
 
 export type IntegrationTab = (typeof INTEGRATION_TABS)[number]
 
@@ -15,6 +15,11 @@ export const INTEGRATION_TAB_INFO: Record<IntegrationTab, IntegrationTabInfo> = 
     labelKey: 'settings.integrations.tabs.hardcover',
     titleKey: 'settings.integrations.tabs.hardcover',
     permission: Permission.HardcoverSync,
+  },
+  yandexBooks: {
+    labelKey: 'settings.integrations.tabs.yandexBooks',
+    titleKey: 'settings.integrations.tabs.yandexBooks',
+    permission: Permission.YandexBooksSync,
   },
   readwise: {
     labelKey: 'settings.integrations.tabs.readwise',

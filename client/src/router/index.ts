@@ -105,6 +105,7 @@ const SYSTEM_ROUTES: Record<SystemTab, string> = {
 
 const INTEGRATION_ROUTES: Record<IntegrationTab, string> = {
   hardcover: 'settings-hardcover',
+  yandexBooks: 'settings-yandex-books',
   readwise: 'settings-readwise',
   storygraph: 'settings-storygraph',
 }
@@ -457,6 +458,13 @@ export const routes: RouteRecordRaw[] = [
             component: () => import('@/features/hardcover/components/HardcoverSettings.vue'),
             props: { embedded: true },
             meta: { maxWidth: 'max-w-3xl', title: () => t('settings.integrations.tabs.hardcover') },
+          },
+          {
+            path: 'yandex-books',
+            name: 'settings-yandex-books',
+            component: () => import('@/features/yandex-books/components/YandexBooksSettings.vue'),
+            props: { embedded: true },
+            meta: { maxWidth: 'max-w-3xl', title: () => t('settings.integrations.tabs.yandexBooks') },
           },
           {
             path: 'readwise',

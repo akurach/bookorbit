@@ -157,6 +157,7 @@ export class ScannerRepository {
       .select({
         id: books.id,
         status: books.status,
+        isFileless: books.isFileless,
         folderPath: books.folderPath,
         primaryFileId: books.primaryFileId,
       })

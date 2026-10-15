@@ -78,6 +78,10 @@ export const bookRequestConfig = registerAs('bookRequest', () => ({
   encryptionKey: process.env.BOOK_REQUEST_ENCRYPTION_KEY ?? '',
 }));
 
+export const yandexBooksConfig = registerAs('yandexBooks', () => ({
+  encryptionKey: process.env.YANDEX_BOOKS_ENCRYPTION_KEY?.trim() ?? '',
+}));
+
 export const podcastConfig = registerAs('podcast', () => ({
   encryptionKey: process.env.PODCAST_ENCRYPTION_KEY?.trim() || process.env.JWT_SECRET || 'change-me-in-production',
   maxFeedBytes: parsePositiveInteger(process.env.PODCAST_MAX_FEED_BYTES, 10 * 1024 * 1024),

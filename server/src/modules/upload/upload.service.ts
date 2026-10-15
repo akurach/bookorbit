@@ -3,7 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import { access as fsAccess, stat } from 'fs/promises';
 import { basename, dirname, extname, join, relative } from 'path';
 import { Readable } from 'stream';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
 import { splitMetadataIsbn } from '../../common/text-match/isbn-normalize';
@@ -199,8 +199,11 @@ export class UploadService {
         folderPath: books.folderPath,
         libraryId: books.libraryId,
         libraryFolderId: books.libraryFolderId,
+        isFileless: books.isFileless,
         allowedFormats: libraries.allowedFormats,
         organizationMode: libraries.organizationMode,
+        libraryName: libraries.name,
+        fileNamingPattern: libraries.fileNamingPattern,
         libraryFolderPath: libraryFolders.path,
       })
       .from(books)
@@ -213,7 +216,7 @@ export class UploadService {
 
     await this.libraryService.verifyUserAccess(user.id, bookRow.libraryId, user.isSuperuser);
 
-    if (bookRow.organizationMode === 'book_per_file') {
+    if (bookRow.organizationMode === 'book_per_file' && !bookRow.isFileless) {
       throw new BadRequestException('Cannot add files to a book in a single-file library. Upload a new book instead.');
     }
 
@@ -244,8 +247,30 @@ export class UploadService {
         throw uploadError.duplicate('This file is already attached to this book');
       }
 
-      destination = join(bookRow.folderPath, filename);
-      await this.pathPolicy.assertWithinRoot(destination, bookRow.folderPath);
+      const resolvedDestination = bookRow.isFileless
+        ? await this.resolveDestination(
+            {
+              name: bookRow.libraryName,
+              fileNamingPattern: bookRow.fileNamingPattern,
+              organizationMode: bookRow.organizationMode,
+            },
+            bookRow.libraryFolderPath,
+            tempPath,
+            filename,
+            format,
+          )
+        : { absolutePath: join(bookRow.folderPath, filename), bookFolderPath: bookRow.folderPath };
+      destination = resolvedDestination.absolutePath;
+      await this.pathPolicy.assertWithinRoot(destination, bookRow.libraryFolderPath);
+
+      if (bookRow.isFileless) {
+        const [occupiedBook] = await this.db
+          .select({ id: books.id })
+          .from(books)
+          .where(and(eq(books.libraryId, bookRow.libraryId), eq(books.folderPath, resolvedDestination.bookFolderPath), ne(books.id, bookId)))
+          .limit(1);
+        if (occupiedBook) throw uploadError.destinationConflict('The upload destination is already assigned to another book');
+      }
 
       if (await this.destinationExists(destination)) {
         throw uploadError.destinationConflict(`A file named "${filename}" already exists in this book's folder`);
@@ -268,6 +293,7 @@ export class UploadService {
           .select({
             primaryFileId: books.primaryFileId,
             status: books.status,
+            isFileless: books.isFileless,
             formatPriority: libraries.formatPriority,
           })
           .from(books)
@@ -277,6 +303,10 @@ export class UploadService {
           .limit(1);
 
         if (!lockedBook) throw new NotFoundException(`Book ${bookId} not found`);
+
+        if (bookRow.isFileless && !lockedBook.isFileless) {
+          throw uploadError.destinationConflict('A file was attached concurrently. Reload the book before adding another file.');
+        }
 
         const [inserted] = await tx
           .insert(bookFiles)
@@ -321,7 +351,7 @@ export class UploadService {
         const winner = selectPrimaryFileKeepingCurrent(contentFiles, lockedBook.primaryFileId, lockedBook.formatPriority);
         const nextPrimaryFileId = winner?.id ?? null;
         const needsPrimaryUpdate = nextPrimaryFileId !== lockedBook.primaryFileId;
-        const needsStatusUpdate = lockedBook.status === 'missing';
+        const needsStatusUpdate = lockedBook.status === 'missing' || lockedBook.isFileless;
 
         if (needsPrimaryUpdate || needsStatusUpdate) {
           await tx
@@ -329,6 +359,7 @@ export class UploadService {
             .set({
               ...(needsPrimaryUpdate ? { primaryFileId: nextPrimaryFileId } : {}),
               ...(needsStatusUpdate ? { status: 'present' } : {}),
+              ...(lockedBook.isFileless ? { isFileless: false, folderPath: resolvedDestination.bookFolderPath } : {}),
               updatedAt: new Date(),
             })
             .where(eq(books.id, bookId));

@@ -33,6 +33,10 @@ export const books = pgTable(
     primaryFileId: integer('primary_file_id').references(() => bookFiles.id, { onDelete: 'set null' }),
     primaryAuthorSortName: varchar('primary_author_sort_name', { length: 500 }),
     folderPath: varchar('folder_path', { length: 4096 }).notNull(),
+    /** A catalog entry that intentionally has no local content file yet. */
+    isFileless: boolean('is_fileless').notNull().default(false),
+    /** The medium supplied by an external catalog until a real file determines it. */
+    catalogMediaKind: varchar('catalog_media_kind', { length: 20 }),
     status: varchar('status', { length: 20 }).notNull().default('present'),
     addedAt: timestamptz('added_at')
       .default(sql`now()`)
@@ -46,6 +50,9 @@ export const books = pgTable(
     uniqueIndex('books_library_id_folder_path_idx').on(t.libraryId, t.folderPath),
     unique('books_id_library_folder_id_unique').on(t.id, t.libraryFolderId),
     index('books_primary_file_id_idx').on(t.primaryFileId),
+    index('books_fileless_library_idx')
+      .on(t.libraryId, t.isFileless)
+      .where(sql`${t.isFileless} = true`),
     index('books_library_status_id_idx').on(t.libraryId, t.status, t.id),
     index('books_library_added_at_idx').on(t.libraryId, sql`${t.addedAt} desc`),
     index('books_library_visible_added_id_idx')
@@ -63,6 +70,7 @@ export const books = pgTable(
       name: 'books_library_folder_library_fk',
     }),
     check('books_status_chk', sql`${t.status} in ('present', 'missing', 'processing')`),
+    check('books_catalog_media_kind_chk', sql`${t.catalogMediaKind} is null or ${t.catalogMediaKind} in ('ebook', 'audiobook', 'comic')`),
   ],
 );
 

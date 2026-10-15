@@ -32,7 +32,7 @@ import { readingDateToDateKey } from '@/features/book/lib/reading-date'
 import { getProviderColor, PROVIDER_SHORT_LABELS } from '@/lib/provider-colors'
 import { useCoverVersions } from '@/features/book/composables/useCoverVersions'
 import { useBookCoverAspectRatio } from '@/features/book/composables/useBookCoverAspectRatio'
-import { FORMAT_TO_GROUP, getPrimaryBookFile, READER_OPENABLE_FORMATS } from '@bookorbit/types'
+import { FORMAT_TO_GROUP, getPrimaryBookFile, Permission, READER_OPENABLE_FORMATS } from '@bookorbit/types'
 import type { BookDetail, BookKoboState, CustomMetadataBookValue, ReadAloudProgressSync, ReadStatus, UserBookStatus } from '@bookorbit/types'
 import { STATUS_OPTIONS, STATUS_ICONS, STATUS_COLORS, useBookStatus } from '@/features/book/composables/useBookStatus'
 import BookDownloadButton from '@/features/book/components/BookDownloadButton.vue'
@@ -68,6 +68,7 @@ import StorygraphBookSyncGridItem from '@/features/storygraph/components/Storygr
 import BookEditionsCard, { type EditionProgress } from '@/features/book/components/detail/details/BookEditionsCard.vue'
 import BookReadingActivityCard from '@/features/book/components/detail/details/BookReadingActivityCard.vue'
 import BookMissingFormatRequest from '@/features/book-requests/components/BookMissingFormatRequest.vue'
+import YandexBooksExternalReadingCard from '@/features/yandex-books/components/YandexBooksExternalReadingCard.vue'
 import { useBookReadingLog } from '@/features/book/composables/useBookReadingLog'
 import { useProviderLinkSettings } from '@/features/book/composables/useProviderLinkSettings'
 import { hasReadAlong } from '@/features/book/lib/file-capabilities'
@@ -265,7 +266,12 @@ const isRatingLocked = computed(() => isLocked('rating'))
 const canViewKobo = computed(() => hasPermission('kobo_sync'))
 const canViewKoreader = computed(() => hasPermission('koreader_sync'))
 const canEditMetadata = computed(() => hasPermission('library_edit_metadata'))
+const canUpload = computed(() => hasPermission(Permission.LibraryUpload))
 const resetReadingStateBookId = computed(() => props.book.id)
+
+function openFilesForAttachment(): void {
+  void router.push({ name: 'book-detail', params: { bookId: props.book.id }, query: { tab: 'files' } })
+}
 const {
   open: resetReadingStateDialogOpen,
   resetting: resettingReadingState,
@@ -1235,6 +1241,15 @@ watch(
       </p>
     </div>
   </div>
+
+  <YandexBooksExternalReadingCard
+    v-if="book.externalReading?.length"
+    class="mb-5"
+    :readings="book.externalReading"
+    :fileless="book.isFileless === true"
+    :can-upload="canUpload"
+    @attach="openFilesForAttachment"
+  />
 
   <!-- Below 46rem of pane width the page is a single column. Above it, the shelf follows the
        natural height of the three-column content instead of being pinned to the viewport bottom. -->

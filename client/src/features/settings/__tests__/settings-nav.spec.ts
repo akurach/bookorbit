@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RouteRecordRaw } from 'vue-router'
-import { BookMarked, Highlighter, LibraryBig } from '@lucide/vue'
+import { BookMarked, Cloud, Highlighter, LibraryBig } from '@lucide/vue'
 import { Permission } from '@bookorbit/types'
 import { routes } from '@/router'
 import { SETTINGS_NAV, findSettingsNavItem, firstVisibleSettingsRoute, visibleSettingsNav, type SettingsNavContext } from '../lib/settings-nav'
@@ -43,6 +43,7 @@ describe('settings navigation model', () => {
 
   it('gives book integrations distinct provider-relevant icons', () => {
     expect(findSettingsNavItem('settings-hardcover')?.item.icon).toBe(BookMarked)
+    expect(findSettingsNavItem('settings-yandex-books')?.item.icon).toBe(Cloud)
     expect(findSettingsNavItem('settings-readwise')?.item.icon).toBe(Highlighter)
     expect(findSettingsNavItem('settings-storygraph')?.item.icon).toBe(LibraryBig)
   })

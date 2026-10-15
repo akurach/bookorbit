@@ -8,6 +8,7 @@ import type { CoverAspectRatio } from "./library";
 import { DEFAULT_FORMAT_PRIORITY } from "./library";
 import type { SeriesIndex } from "./series-index";
 import type { EpubMediaOverlayCapability } from "./epub";
+import type { ExternalBookReading } from "./yandex-books";
 
 // Derived rather than duplicated: these two lists describe the same set of formats,
 // and maintaining them separately let BOOK_FORMATS fall behind on azw and kepub.
@@ -187,6 +188,9 @@ export type BookSeriesMembership = {
 export type BookCard = {
   id: number;
   status: string;
+  isFileless?: boolean;
+  catalogMediaKind?: ConcreteBookMediaKind | null;
+  externalReading?: ExternalBookReading[];
   /** The frame of the cover the book shows by default, which follows its primary file's medium rather than its library. */
   coverAspectRatio: CoverAspectRatio;
   title: string | null;
@@ -294,6 +298,9 @@ export type BookDetail = {
   libraryId: number;
   libraryName: string;
   status: string;
+  isFileless?: boolean;
+  catalogMediaKind?: ConcreteBookMediaKind | null;
+  externalReading?: ExternalBookReading[];
   folderPath: string;
   addedAt: string;
   updatedAt: string | null;

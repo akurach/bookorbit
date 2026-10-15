@@ -141,6 +141,7 @@ function makeService(overrides: { bookMetadataLockService?: unknown; appDataPath
     findProgressByBook: vi.fn(),
     upsertProgress: vi.fn(),
     findReadAloudSyncMode: vi.fn().mockResolvedValue('auto'),
+    findExternalReadingByBook: vi.fn().mockResolvedValue([]),
     upsertReadAloudSyncMode: vi.fn(),
     syncKoboReadingStateFromProgress: vi.fn(),
     isKoboTwoWayProgressSyncEnabled: vi.fn().mockResolvedValue(false),

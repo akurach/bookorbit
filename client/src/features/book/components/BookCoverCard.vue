@@ -88,6 +88,7 @@ const openableFiles = computed(() => downloadableFiles.value.filter((file) => RE
 const primaryFile = computed(() => openableFiles.value.find((f) => f.role === 'primary') ?? openableFiles.value[0] ?? null)
 const primaryDownloadFile = computed(() => downloadableFiles.value[0] ?? null)
 const mediaProfile = computed(() => getBookMediaProfile(formatEntries.value.flatMap((entry) => entry.files)))
+const isFileless = computed(() => props.book.isFileless === true)
 const formatOverlayKey = computed(() => formatEntries.value[0]?.key ?? null)
 const isAudiobook = computed(() => mediaProfile.value.primaryMediaKind === 'audiobook')
 const isComic = computed(() => mediaProfile.value.primaryMediaKind === 'comic')
@@ -264,24 +265,27 @@ function handleSecondaryLabelClick(event: MouseEvent) {
   handleLabelClick(gridCardSecondaryLabel.value, event)
 }
 
-const isPrimaryClickAvailable = computed(() => thumbnailClickAction.value === 'details' || (primaryFile.value != null && !isMissing.value))
-const showPrimaryOverlayAction = computed(() => thumbnailClickAction.value === 'details' || (primaryFile.value != null && !isMissing.value))
+const opensDetails = computed(() => isFileless.value || thumbnailClickAction.value === 'details')
+const isPrimaryClickAvailable = computed(() => opensDetails.value || (primaryFile.value != null && !isMissing.value))
+const showPrimaryOverlayAction = computed(() => opensDetails.value || (primaryFile.value != null && !isMissing.value))
 const primaryOverlayActionIcon = computed(() => {
-  if (thumbnailClickAction.value === 'details') return BookText
+  if (opensDetails.value) return BookText
   return isAudiobook.value ? Play : BookOpen
 })
-const primaryOverlayActionIconClass = computed(() => (thumbnailClickAction.value !== 'details' && isAudiobook.value ? 'ml-[2cqi]' : ''))
-const showExplicitReadButton = computed(() => thumbnailClickAction.value === 'details' && primaryFile.value != null && !isMissing.value)
+const primaryOverlayActionIconClass = computed(() => (!opensDetails.value && isAudiobook.value ? 'ml-[2cqi]' : ''))
+const showExplicitReadButton = computed(
+  () => !isFileless.value && thumbnailClickAction.value === 'details' && primaryFile.value != null && !isMissing.value,
+)
 const readActionLabel = computed(() => {
   if (isAudiobook.value) {
     return hasProgress.value ? t('book.actions.continueListening') : t('book.actions.startListening')
   }
   return hasProgress.value ? t('book.actions.continueReading') : t('book.actions.startReading')
 })
-const primaryOverlayActionLabel = computed(() => (thumbnailClickAction.value === 'details' ? t('book.actions.bookDetails') : readActionLabel.value))
+const primaryOverlayActionLabel = computed(() => (opensDetails.value ? t('book.actions.bookDetails') : readActionLabel.value))
 
 function handlePrimaryOverlayAction() {
-  if (thumbnailClickAction.value === 'details') {
+  if (opensDetails.value) {
     openBookDetails()
     return
   }
@@ -301,7 +305,7 @@ function handleCardClick(event: MouseEvent) {
     return
   }
 
-  if (thumbnailClickAction.value === 'details') {
+  if (opensDetails.value) {
     openBookDetails()
     return
   }

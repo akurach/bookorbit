@@ -327,6 +327,24 @@ describe('missing book detection', () => {
     expect(repo.markBooksAsMissing).toHaveBeenCalledWith([5, 6]);
   });
 
+  it('keeps fileless catalog books present when no filesystem candidate exists', async () => {
+    const repo = makeRepo({
+      findBooksByLibraryFolder: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 5, libraryId: 1, libraryFolderId: 1, folderPath: '/library/Yandex Books/ebook-book-1', status: 'present', isFileless: true },
+        ]),
+    });
+    mockFindCandidates.mockResolvedValue({ candidates: [], skippedDirs: new Set(), unchangedDirs: new Set(), dirMtimes: new Map() });
+
+    const done = awaitScan(repo);
+    const { service } = makeService(repo);
+    await service.startScan(1, 'manual');
+    await done;
+
+    expect(repo.markBooksAsMissing).not.toHaveBeenCalled();
+  });
+
   it('does not mark books as missing when they appear in candidates', async () => {
     const folderPath = '/library/Author/Book';
     const repo = makeRepo({

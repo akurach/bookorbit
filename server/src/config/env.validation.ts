@@ -89,6 +89,10 @@ const envSchema = z.object({
   EMAIL_ENCRYPTION_KEY: z.string().optional(),
   MIGRATION_ENCRYPTION_KEY: z.string().optional(),
   BOOK_REQUEST_ENCRYPTION_KEY: z.string().optional(),
+  YANDEX_BOOKS_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^([a-fA-F0-9]{64})?$/, 'Must be a 64-character hex key')
+    .optional(),
   MIGRATION_IMPORT_ROOT: z
     .string()
     .transform((val) => val.trim())

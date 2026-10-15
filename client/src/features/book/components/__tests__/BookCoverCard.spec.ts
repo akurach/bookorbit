@@ -230,6 +230,17 @@ describe('BookCoverCard - present state', () => {
     expect(routerPushMock).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'reader' }))
   })
 
+  it('opens details from an imported fileless card even when thumbnails normally open the reader', async () => {
+    const wrapper = mountCard({ ...presentBook, id: 44, files: [], isFileless: true })
+
+    await wrapper.find('.group').trigger('click')
+
+    expect(routerPushMock).toHaveBeenCalledWith({ name: 'book-detail', params: { bookId: 44 } })
+    expect(routerPushMock).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'reader' }))
+    expect(wrapper.get('[data-testid="grid-card-primary-action"]').attributes('aria-label')).toBe('Book Details')
+    expect(wrapper.find('button[aria-label="Start reading"]').exists()).toBe(false)
+  })
+
   it('opens book details from the primary overlay action when thumbnail clicks prefer details', async () => {
     thumbnailClickAction.value = 'details'
     const wrapper = mountCard(presentBook)

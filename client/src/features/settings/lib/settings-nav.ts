@@ -5,6 +5,7 @@ import {
   Bell,
   BookMarked,
   BookOpen,
+  Cloud,
   Database,
   DownloadCloud,
   FileText,
@@ -438,6 +439,15 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
         icon: BookMarked,
         keywords: 'hardcover integration token reading status reviews',
         isVisible: anyPermission(Permission.HardcoverSync),
+      },
+      {
+        id: 'yandex-books',
+        routeName: 'settings-yandex-books',
+        labelKey: 'settings.integrations.tabs.yandexBooks',
+        descriptionKey: 'settings.integrations.providerSubtitles.yandexBooks',
+        icon: Cloud,
+        keywords: 'yandex books bookmate import reading status progress',
+        isVisible: anyPermission(Permission.YandexBooksSync),
       },
       {
         id: 'readwise',

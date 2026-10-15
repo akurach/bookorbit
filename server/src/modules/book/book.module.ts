@@ -30,6 +30,7 @@ import { BookRepository } from './book.repository';
 import { BookService } from './book.service';
 import { BookAuthorSortKeyBackfillService } from './book-author-sort-key-backfill.service';
 import { ReadingAttemptController } from './reading-attempt.controller';
+import { ExternalCatalogService } from './external-catalog.service';
 
 @Module({
   imports: [
@@ -64,7 +65,16 @@ import { ReadingAttemptController } from './reading-attempt.controller';
     DeliveryArtifactRepository,
     DeliverySelectionService,
     DeliveryHashRegistrationService,
+    ExternalCatalogService,
   ],
-  exports: [BookService, BookReadService, BookQueryBuilder, AudiolessEpubService, DeliveryArtifactService, DeliverySelectionService],
+  exports: [
+    BookService,
+    BookReadService,
+    BookQueryBuilder,
+    AudiolessEpubService,
+    DeliveryArtifactService,
+    DeliverySelectionService,
+    ExternalCatalogService,
+  ],
 })
 export class BookModule {}

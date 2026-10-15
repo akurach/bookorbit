@@ -337,6 +337,7 @@ export class ScannerService implements OnApplicationBootstrap {
     knownBooks: Array<{
       id: number;
       status: string;
+      isFileless?: boolean;
       folderPath: string;
       primaryFileId?: number | null;
     }>,
@@ -355,8 +356,9 @@ export class ScannerService implements OnApplicationBootstrap {
       mediaOverlayCheckedAt?: Date | null;
     }>,
   ): ScanLookupMaps {
+    const scannedBooks = knownBooks.filter((book) => !book.isFileless);
     const bookByFolderPath = new Map<string, BookEntry>(
-      knownBooks.map((b) => [
+      scannedBooks.map((b) => [
         b.folderPath,
         {
           id: b.id,
@@ -368,7 +370,7 @@ export class ScannerService implements OnApplicationBootstrap {
     );
 
     const booksByParentDir = new Map<string, BookEntry[]>();
-    for (const b of knownBooks) {
+    for (const b of scannedBooks) {
       const parentDir = dirname(b.folderPath);
       let arr = booksByParentDir.get(parentDir);
       if (!arr) {
@@ -1641,7 +1643,7 @@ export class ScannerService implements OnApplicationBootstrap {
         return false;
       };
       const missingCandidates = knownBooks
-        .filter((b) => !seenBookIds.has(b.id) && !isUnderSkippedDir(b.folderPath) && !isInUnchangedDir(b.folderPath))
+        .filter((b) => !b.isFileless && !seenBookIds.has(b.id) && !isUnderSkippedDir(b.folderPath) && !isInUnchangedDir(b.folderPath))
         .map((b) => b.id);
       const missingIds = await this.filterBookIdsMissingOnDisk(missingCandidates);
       if (missingIds.length > 0) {

@@ -1142,17 +1142,28 @@ export class BookService {
     const customFieldTypes = await this.resolveCustomSortFieldTypes(query.sort);
 
     if (shouldCollapse) {
-      const { rows, authorRows, fileRows, genreRows, tagRows, progressRows, statusRows, narratorRows, seriesMembershipRows, total } =
-        await this.bookRepo.findCardsCollapsed({
-          where,
-          sort: query.sort,
-          limit: size,
-          offset: page * size,
-          userId,
-          customFieldTypes,
-          ...(options?.defaultCollectionId !== undefined ? { defaultCollectionId: options.defaultCollectionId } : {}),
-          ...(query.randomSeed !== undefined ? { randomSeed: query.randomSeed } : {}),
-        });
+      const {
+        rows,
+        authorRows,
+        fileRows,
+        genreRows,
+        tagRows,
+        progressRows,
+        statusRows,
+        narratorRows,
+        seriesMembershipRows,
+        externalReadingRows,
+        total,
+      } = await this.bookRepo.findCardsCollapsed({
+        where,
+        sort: query.sort,
+        limit: size,
+        offset: page * size,
+        userId,
+        customFieldTypes,
+        ...(options?.defaultCollectionId !== undefined ? { defaultCollectionId: options.defaultCollectionId } : {}),
+        ...(query.randomSeed !== undefined ? { randomSeed: query.randomSeed } : {}),
+      });
       // Collapsed rows render BookTableCollapsedSeriesCell which does not display custom metadata.
       const cards = assembleCollapsedBookCards(
         rows,
@@ -1164,6 +1175,8 @@ export class BookService {
         narratorRows,
         tagRows,
         seriesMembershipRows,
+        [],
+        externalReadingRows,
       );
       await this.coverStore.enrichCardFaces(cards);
       const result = {
@@ -1186,14 +1199,25 @@ export class BookService {
       ...(query.randomSeed !== undefined ? { randomSeed: query.randomSeed } : {}),
       ...(query.q !== undefined ? { query: query.q } : {}),
     });
-    const { rows, authorRows, fileRows, genreRows, tagRows, progressRows, statusRows, narratorRows, seriesMembershipRows, total } =
-      await this.bookRepo.findCards({
-        where,
-        orderBy,
-        limit: size,
-        offset: page * size,
-        userId,
-      });
+    const {
+      rows,
+      authorRows,
+      fileRows,
+      genreRows,
+      tagRows,
+      progressRows,
+      statusRows,
+      narratorRows,
+      seriesMembershipRows,
+      externalReadingRows,
+      total,
+    } = await this.bookRepo.findCards({
+      where,
+      orderBy,
+      limit: size,
+      offset: page * size,
+      userId,
+    });
     const bookIds = rows.map((r) => r.id);
     const customMetadataRows = await this.customMetadataService.getCardValues(bookIds);
     const cards = assembleBookCards(
@@ -1207,6 +1231,7 @@ export class BookService {
       tagRows,
       seriesMembershipRows,
       customMetadataRows,
+      externalReadingRows,
     );
     await this.coverStore.enrichCardFaces(cards);
     const result = {
@@ -3308,16 +3333,18 @@ export class BookService {
 
   async getDetail(id: number, user: RequestUser): Promise<BookDetailDto> {
     await this.verifyBookAccess(id, user);
-    const [result, personalRating, personalNote, readStatus, comicMeta, collectionRows, readAloudSyncMode, coverContext] = await Promise.all([
-      this.bookRepo.findById(id),
-      this.bookRepo.findRatingByBookAndUser(id, user.id),
-      this.userBookNoteService.findOne(user.id, id),
-      this.userBookStatusService.findOne(user.id, id),
-      this.comicMetadataService.findByBookId(id),
-      this.bookRepo.findCollectionsByBookId(id, user.id),
-      this.bookRepo.findReadAloudSyncMode(user.id, id),
-      this.coverStore.contextFor(id),
-    ]);
+    const [result, personalRating, personalNote, readStatus, comicMeta, collectionRows, readAloudSyncMode, coverContext, externalReadingRows] =
+      await Promise.all([
+        this.bookRepo.findById(id),
+        this.bookRepo.findRatingByBookAndUser(id, user.id),
+        this.userBookNoteService.findOne(user.id, id),
+        this.userBookStatusService.findOne(user.id, id),
+        this.comicMetadataService.findByBookId(id),
+        this.bookRepo.findCollectionsByBookId(id, user.id),
+        this.bookRepo.findReadAloudSyncMode(user.id, id),
+        this.coverStore.contextFor(id),
+        this.bookRepo.findExternalReadingByBook(user.id, id),
+      ]);
     if (!result || !coverContext) throw new NotFoundException(`Book ${id} not found`);
 
     const { book, authorRows, genreRows, tagRows, fileRows, narratorRows, seriesMembershipRows, communityRatingRows } = result;
@@ -3346,6 +3373,27 @@ export class BookService {
       libraryId: book.books.libraryId,
       libraryName: book.libraries?.name ?? '',
       status: book.books.status,
+      isFileless: book.books.isFileless,
+      catalogMediaKind:
+        book.books.catalogMediaKind === 'ebook' || book.books.catalogMediaKind === 'audiobook' || book.books.catalogMediaKind === 'comic'
+          ? book.books.catalogMediaKind
+          : null,
+      externalReading: externalReadingRows
+        .filter((reading) => reading.provider === 'yandexBooks')
+        .filter((reading) => reading.mediaKind === 'ebook' || reading.mediaKind === 'audiobook' || reading.mediaKind === 'comic')
+        .map((reading) => ({
+          provider: 'yandexBooks' as const,
+          externalId: reading.externalId,
+          mediaKind: reading.mediaKind,
+          sourceUrl: reading.sourceUrl,
+          remoteStatus: reading.remoteStatus,
+          percentage: reading.percentage,
+          positionSeconds: reading.positionSeconds,
+          durationSeconds: reading.durationSeconds,
+          startedAt: reading.startedAt?.toISOString() ?? null,
+          finishedAt: reading.finishedAt?.toISOString() ?? null,
+          syncedAt: reading.syncedAt.toISOString(),
+        })),
       folderPath: book.books.folderPath,
       addedAt: book.books.addedAt,
       updatedAt: book.books.updatedAt ?? null,

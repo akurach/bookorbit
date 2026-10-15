@@ -14,6 +14,8 @@ function normalizeLockedFields(raw: string[] | null | undefined): BookMetadataLo
 type BookRow = {
   id: number;
   status: string;
+  isFileless?: boolean;
+  catalogMediaKind?: string | null;
   coverAspectRatio: string;
   primaryFileId?: number | null;
   folderPath: string;
@@ -87,6 +89,20 @@ type CustomMetadataRow = {
   displayOrder: number;
   value: string | number | boolean | null;
 };
+type ExternalReadingRow = {
+  bookId: number;
+  provider: string;
+  externalId: string;
+  mediaKind: string;
+  sourceUrl: string;
+  remoteStatus: string;
+  percentage: number | null;
+  positionSeconds: number | null;
+  durationSeconds: number | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  syncedAt: Date;
+};
 
 function serializeDateByBookId(values: Record<number, Date | null> | null | undefined): Record<number, string | null> {
   const result: Record<number, string | null> = {};
@@ -107,6 +123,7 @@ export function assembleBookCards(
   tagRows: NameRow[] = [],
   seriesMembershipRows: SeriesMembershipRow[] = [],
   customMetadataRows: CustomMetadataRow[] = [],
+  externalReadingRows: ExternalReadingRow[] = [],
 ): BookCard[] {
   const authorsByBook = new Map<number, string[]>();
   for (const row of authorRows) {
@@ -188,6 +205,27 @@ export function assembleBookCards(
     customMetadataByBook.set(row.bookId, list);
   }
 
+  const externalReadingByBook = new Map<number, BookCard['externalReading']>();
+  for (const row of externalReadingRows) {
+    if (row.provider !== 'yandexBooks') continue;
+    if (row.mediaKind !== 'ebook' && row.mediaKind !== 'audiobook' && row.mediaKind !== 'comic') continue;
+    const list = externalReadingByBook.get(row.bookId) ?? [];
+    list.push({
+      provider: 'yandexBooks',
+      externalId: row.externalId,
+      mediaKind: row.mediaKind,
+      sourceUrl: row.sourceUrl,
+      remoteStatus: row.remoteStatus,
+      percentage: row.percentage,
+      positionSeconds: row.positionSeconds,
+      durationSeconds: row.durationSeconds,
+      startedAt: row.startedAt?.toISOString() ?? null,
+      finishedAt: row.finishedAt?.toISOString() ?? null,
+      syncedAt: row.syncedAt.toISOString(),
+    });
+    externalReadingByBook.set(row.bookId, list);
+  }
+
   return rows.map((row) => {
     const rawFiles = filesByBook.get(row.id) ?? [];
     // A cover or sidecar is never the primary: a book with no content file has none.
@@ -205,11 +243,19 @@ export function assembleBookCards(
         ...(mediaOverlay ? { mediaOverlay } : {}),
       };
     });
-    const readingProgress = primaryFile != null ? (progressByFileId.get(primaryFile.id) ?? null) : null;
+    const localProgress = primaryFile != null ? (progressByFileId.get(primaryFile.id) ?? null) : null;
+    const externalReading = externalReadingByBook.get(row.id) ?? [];
+    const externalProgress = externalReading.find((reading) => reading.percentage != null)?.percentage ?? null;
+    const readingProgress = localProgress ?? externalProgress;
 
     return {
       id: row.id,
       status: row.status,
+      ...(row.isFileless ? { isFileless: true } : {}),
+      ...(row.catalogMediaKind === 'ebook' || row.catalogMediaKind === 'audiobook' || row.catalogMediaKind === 'comic'
+        ? { catalogMediaKind: row.catalogMediaKind }
+        : {}),
+      ...(externalReading.length > 0 ? { externalReading } : {}),
       coverAspectRatio: normalizeCoverAspectRatio(row.coverAspectRatio),
       title: row.title ?? basename(row.folderPath),
       seriesId: row.seriesId ?? null,
@@ -265,6 +311,7 @@ export function assembleCollapsedBookCards(
   tagRows: NameRow[] = [],
   seriesMembershipRows: SeriesMembershipRow[] = [],
   customMetadataRows: CustomMetadataRow[] = [],
+  externalReadingRows: ExternalReadingRow[] = [],
 ): BookCard[] {
   const base = assembleBookCards(
     rows,
@@ -277,6 +324,7 @@ export function assembleCollapsedBookCards(
     tagRows,
     seriesMembershipRows,
     customMetadataRows,
+    externalReadingRows,
   );
 
   for (let i = 0; i < base.length; i++) {

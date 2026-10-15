@@ -8,6 +8,17 @@ const BASE_ENV = {
 };
 
 describe('validateEnv', () => {
+  it('allows Yandex Books to remain unconfigured and accepts a valid encryption key', () => {
+    expect(validateEnv(BASE_ENV).YANDEX_BOOKS_ENCRYPTION_KEY).toBeUndefined();
+    expect(validateEnv({ ...BASE_ENV, YANDEX_BOOKS_ENCRYPTION_KEY: '' }).YANDEX_BOOKS_ENCRYPTION_KEY).toBe('');
+    const key = 'a1'.repeat(32);
+    expect(validateEnv({ ...BASE_ENV, YANDEX_BOOKS_ENCRYPTION_KEY: key }).YANDEX_BOOKS_ENCRYPTION_KEY).toBe(key);
+  });
+
+  it.each(['short', 'g'.repeat(64), 'a'.repeat(63)])('rejects malformed Yandex encryption key %j', (key) => {
+    expect(() => validateEnv({ ...BASE_ENV, YANDEX_BOOKS_ENCRYPTION_KEY: key })).toThrow('Must be a 64-character hex key');
+  });
+
   it('allows HOST to remain unset', () => {
     expect(validateEnv(BASE_ENV).HOST).toBeUndefined();
   });

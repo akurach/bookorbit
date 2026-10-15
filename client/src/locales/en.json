@@ -1601,10 +1601,12 @@
       "noPermission": "You do not have permission to use any integrations.",
       "tabs": {
         "hardcover": "Hardcover",
+        "yandexBooks": "Yandex Books",
         "readwise": "Readwise",
         "storygraph": "StoryGraph"
       },
       "providerSubtitles": {
+        "yandexBooks": "Import your Yandex Books library, status, and source progress.",
         "readwise": "Send your highlights to Readwise automatically.",
         "storygraph": "Sync your reading progress and status to The StoryGraph."
       }
@@ -9165,6 +9167,115 @@
       "PODCAST_LOCAL_MEDIA_MISSING": "The only copy of this episode is no longer on disk, so it cannot be played.",
       "PODCAST_LOCAL_FOLDER_EMPTY": "This folder holds no audio BookOrbit can import, so it cannot become a show.",
       "PODCAST_STORAGE_FULL": "This podcast library is out of storage. Free some space or raise its quota, then try again. Files that belong to local shows are never removed to make room."
+    }
+  },
+  "yandexBooks": {
+    "settings": {
+      "subtitle": "Import books, statuses, and source progress from Yandex Books."
+    },
+    "loading": "Loading Yandex Books settings...",
+    "connection": {
+      "title": "Connection",
+      "description": "Connect a Yandex Books account with an access token stored encrypted on this server.",
+      "connected": "Connected",
+      "token": "Access token",
+      "tokenPlaceholder": "Paste a Yandex Books access token",
+      "show": "Show",
+      "hide": "Hide",
+      "tokenHint": "The token is sent only to this BookOrbit server. It is never shown again after saving.",
+      "account": "Connected as {name} ({login})",
+      "encryptionUnavailable": "The server has no encryption key configured. Ask an administrator to configure it before saving a token.",
+      "needsReauth": "Yandex rejected this token. Paste a new token and save the connection again."
+    },
+    "destination": {
+      "library": "Library",
+      "folder": "Folder",
+      "selectLibrary": "Choose a library",
+      "selectFolder": "Choose a folder",
+      "membersHint": "Imported catalog cards are visible to people who can access this library. Reading status and source progress remain personal."
+    },
+    "schedule": {
+      "interval": "Update interval",
+      "everyHours": "Every {count} hours",
+      "autoSync": "Update automatically"
+    },
+    "actions": {
+      "save": "Save connection",
+      "disconnect": "Disconnect"
+    },
+    "sync": {
+      "title": "Import from Yandex Books",
+      "description": "Fetch the current library first, then choose which prepared entries to add to BookOrbit.",
+      "update": "Update preview",
+      "updating": "Updating...",
+      "importReady": "Import ready ({count})",
+      "importAll": "Import or update all ({count})",
+      "lastSynced": "Last updated {date}",
+      "nextSync": "Next update {date}",
+      "uploadPermissionRequired": "You can review the source library, but library upload permission is required to import catalog cards.",
+      "result": {
+        "fetched": "{count} fetched",
+        "imported": "{count} imported",
+        "updated": "{count} updated",
+        "conflicts": "{count} conflicts"
+      }
+    },
+    "entries": {
+      "title": "Prepared books",
+      "description": "Yandex status and progress are kept as an external source snapshot. They do not move a local reader position.",
+      "all": "All entries",
+      "ready": "Ready",
+      "conflict": "Conflicts",
+      "imported": "Imported",
+      "empty": "No entries yet. Update the preview to fetch your Yandex Books library.",
+      "openYandex": "Open Yandex",
+      "status": "Status: {status}",
+      "progress": "Progress: {value}",
+      "linked": "Linked to BookOrbit",
+      "linkExisting": "Link existing book",
+      "link": "Link",
+      "cancel": "Cancel",
+      "searchExisting": "Search this library by title or author",
+      "searching": "Searching...",
+      "searchFailed": "Could not search this library",
+      "noBooksFound": "No books found",
+      "clearSelection": "Clear selected book",
+      "untitled": "Untitled",
+      "unknownStatus": "Unknown",
+      "conflictHint": "This source update conflicts with a local reading state.",
+      "keepLocal": "Keep local",
+      "useYandex": "Use Yandex",
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {page} of {total}"
+    },
+    "media": {
+      "ebook": "Ebook",
+      "audiobook": "Audiobook",
+      "comic": "Comic"
+    },
+    "toast": {
+      "chooseDestination": "Choose a library and folder first",
+      "saved": "Yandex Books connection saved",
+      "saveFailed": "Could not save the Yandex Books connection",
+      "disconnected": "Yandex Books disconnected",
+      "disconnectFailed": "Could not disconnect Yandex Books",
+      "updateFailed": "Could not update Yandex Books",
+      "importStarted": "Yandex Books import started",
+      "importFailed": "Could not import Yandex Books",
+      "resolveFailed": "Could not resolve this conflict",
+      "linked": "Book linked",
+      "linkFailed": "Could not link this book"
+    },
+    "externalReading": {
+      "title": "Yandex Books source",
+      "description": "This is the reading state reported by Yandex Books. It is separate from the position in a local file.",
+      "status": "Status: {status}",
+      "progress": "Source progress: {value}",
+      "synced": "Updated {date}",
+      "open": "Open in Yandex",
+      "attachFile": "Attach a local file",
+      "attachFileHint": "Attach EPUB, FB2, audio, or another supported format to read it here. The source state stays linked to this card."
     }
   },
   "hardcover": {

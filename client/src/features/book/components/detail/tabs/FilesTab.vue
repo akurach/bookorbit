@@ -17,6 +17,7 @@ import FileListCard from '../files/FileListCard.vue'
 import FileDetailCard from '../files/FileDetailCard.vue'
 import WriteBackCard from '../files/WriteBackCard.vue'
 import AddBookFileModal from './AddBookFileModal.vue'
+import YandexBooksExternalReadingCard from '@/features/yandex-books/components/YandexBooksExternalReadingCard.vue'
 
 const props = defineProps<{ book: BookDetail }>()
 const emit = defineEmits<{ refetch: [] }>()
@@ -237,6 +238,13 @@ async function confirmDelete() {
       :sort-options="sortOptions"
       @sort="handleSort"
       @add-file="openAddFileModal"
+    />
+
+    <YandexBooksExternalReadingCard
+      :readings="book.externalReading ?? []"
+      :fileless="book.isFileless === true"
+      :can-upload="canUpload"
+      @attach="openAddFileModal"
     />
 
     <!-- Empty state -->

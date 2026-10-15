@@ -1,5 +1,8 @@
 # Yandex Books metadata provider / Источник метаданных Яндекс Книги
 
+Personal library import: [English](YANDEX_BOOKS_READING.md) /
+[Импорт книг, статусов и прогресса](YANDEX_BOOKS_READING.ru.md).
+
 ## English
 
 The Yandex Books provider adds the public Russian-language ebook catalog to

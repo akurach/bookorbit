@@ -77,6 +77,7 @@ export * from "./annotation";
 export * from "./book-journal";
 export * from "./notebook";
 export * from "./hardcover";
+export * from "./yandex-books";
 export * from "./readwise";
 export * from "./storygraph";
 export * from "./path";

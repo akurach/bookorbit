@@ -18,6 +18,7 @@ import {
   oidcRuntimeConfig,
   podcastConfig,
   storageConfig,
+  yandexBooksConfig,
 } from './config/config';
 import { validateEnv } from './config/env.validation';
 import { loggerConfig } from './common/logger.config';
@@ -80,6 +81,7 @@ import { AppInfoModule } from './modules/app-info/app-info.module';
 import { ReleaseNotesModule } from './modules/release-notes/release-notes.module';
 import { AchievementModule } from './modules/achievement/achievement.module';
 import { HardcoverModule } from './modules/hardcover/hardcover.module';
+import { YandexBooksModule } from './modules/yandex-books/yandex-books.module';
 import { ReadwiseModule } from './modules/readwise/readwise.module';
 import { StorygraphModule } from './modules/storygraph/storygraph.module';
 import { CustomMetadataModule } from './modules/custom-metadata/custom-metadata.module';
@@ -111,6 +113,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
         emailConfig,
         migrationConfig,
         bookRequestConfig,
+        yandexBooksConfig,
         oidcRuntimeConfig,
         podcastConfig,
         audiolessEpubConfig,
@@ -186,6 +189,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     ReleaseNotesModule,
     AchievementModule,
     HardcoverModule,
+    YandexBooksModule,
     ReadwiseModule,
     StorygraphModule,
     AccountActivityModule,

@@ -14,6 +14,7 @@ import type {
   ReadAloudProgressSync,
   UserBookStatus,
   EpubMediaOverlayCapability,
+  ExternalBookReading,
 } from '@bookorbit/types';
 
 export class BookFileDto {
@@ -42,6 +43,9 @@ export class BookDetailDto {
   libraryId: number;
   libraryName: string;
   status: string;
+  isFileless?: boolean;
+  catalogMediaKind?: 'ebook' | 'audiobook' | 'comic' | null;
+  externalReading?: ExternalBookReading[];
   folderPath: string;
   addedAt: Date;
   updatedAt: Date | null;

@@ -69,6 +69,8 @@ export const loggerConfig: Params = {
         'req.body.currentPassword',
         'req.body.newPassword',
         'req.body.token',
+        'req.body.apiToken',
+        'req.headers["auth-token"]',
         'req.body.clientSecret',
         'req.body.codeVerifier',
       ],

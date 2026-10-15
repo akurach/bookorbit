@@ -251,6 +251,7 @@ describe('BookRepository', () => {
         .mockReturnValueOnce(makeSelectChain('orderBy', seriesMembershipRows))
         .mockReturnValueOnce(makeSelectChain('where', statusRows))
         .mockReturnValueOnce(makeSelectChain('where', fileProgressRows))
+        .mockReturnValueOnce(makeSelectChain('where', []))
         .mockReturnValueOnce(makeSelectChain('where', [])),
     };
     const repo = new BookRepository(db as never);
@@ -268,6 +269,7 @@ describe('BookRepository', () => {
       statusRows,
       narratorRows,
       seriesMembershipRows,
+      externalReadingRows: [],
       total: 1,
     });
   });
@@ -289,7 +291,8 @@ describe('BookRepository', () => {
         .mockReturnValueOnce(makeSelectChain('orderBy', []))
         .mockReturnValueOnce(makeSelectChain('where', []))
         .mockReturnValueOnce(makeSelectChain('where', readingProgressRows))
-        .mockReturnValueOnce(makeSelectChain('where', audiobookProgressRows)),
+        .mockReturnValueOnce(makeSelectChain('where', audiobookProgressRows))
+        .mockReturnValueOnce(makeSelectChain('where', [])),
     };
     const repo = new BookRepository(db as never);
 
@@ -318,6 +321,7 @@ describe('BookRepository', () => {
         .mockReturnValueOnce(tracked('orderBy', 1))
         .mockReturnValueOnce(tracked('where', 2))
         .mockReturnValueOnce(tracked('where', 2))
+        .mockReturnValueOnce(tracked('where', 2))
         .mockReturnValueOnce(tracked('where', 2)),
     };
     const repo = new BookRepository(db as never);
@@ -328,7 +332,7 @@ describe('BookRepository', () => {
     gates[0].resolve();
     await vi.waitFor(() => expect(started).toBe(6));
     gates[1].resolve();
-    await vi.waitFor(() => expect(started).toBe(9));
+    await vi.waitFor(() => expect(started).toBe(10));
     gates[2].resolve();
 
     await expect(result).resolves.toMatchObject({ rows, total: 1 });
@@ -348,6 +352,7 @@ describe('BookRepository', () => {
       statusRows: [],
       narratorRows: [],
       seriesMembershipRows: [],
+      externalReadingRows: [],
       total: 0,
     });
     expect(db.select).not.toHaveBeenCalled();

@@ -69,6 +69,13 @@ export function coverMediaSql(bookId: OuterBookId) {
   };
 }
 
+function catalogMediaSql(fileMedia: ReturnType<typeof coverMediaSql>) {
+  return {
+    hasEbook: sql<boolean>`(${fileMedia.hasEbook}) or (${books.isFileless} = true and ${books.catalogMediaKind} in ('ebook', 'comic'))`,
+    hasAudio: sql<boolean>`(${fileMedia.hasAudio}) or (${books.isFileless} = true and ${books.catalogMediaKind} = 'audiobook')`,
+  };
+}
+
 /** A filled, served slot of this medium. Callers pair it with `coverMediaSql` for the medium's presence. */
 export function activeCoverSlotSql(bookId: OuterBookId, medium: CoverMedium) {
   return sql<boolean>`exists (
@@ -153,7 +160,7 @@ export class BookCoverStoreRepository {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async findContext(bookId: number): Promise<BookCoverContext | null> {
-    const mediaProjection = coverMediaSql(books.id);
+    const mediaProjection = catalogMediaSql(coverMediaSql(books.id));
     const [book] = await this.db
       .select({
         bookId: books.id,
@@ -229,7 +236,7 @@ export class BookCoverStoreRepository {
         )`,
         updatedAt: books.updatedAt,
         addedAt: books.addedAt,
-        ...coverMediaSql(books.id),
+        ...catalogMediaSql(coverMediaSql(books.id)),
       })
       .from(books)
       .innerJoin(libraries, eq(libraries.id, books.libraryId))

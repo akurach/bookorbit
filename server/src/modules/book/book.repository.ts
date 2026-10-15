@@ -38,6 +38,7 @@ import {
   bookGenres,
   bookMetadata,
   bookNarrators,
+  externalBookSources,
   bookSeries,
   bookSeriesMemberships,
   books,
@@ -555,6 +556,8 @@ export class BookRepository {
       .select({
         id: books.id,
         status: books.status,
+        isFileless: books.isFileless,
+        catalogMediaKind: books.catalogMediaKind,
         coverAspectRatio: libraries.coverAspectRatio,
         primaryFileId: books.primaryFileId,
         folderPath: books.folderPath,
@@ -669,6 +672,20 @@ export class BookRepository {
           displayOrder: number;
           expectedBookCount: number | null;
         }[],
+        externalReadingRows: [] as {
+          bookId: number;
+          provider: string;
+          externalId: string;
+          mediaKind: string;
+          sourceUrl: string;
+          remoteStatus: string;
+          percentage: number | null;
+          positionSeconds: number | null;
+          durationSeconds: number | null;
+          startedAt: Date | null;
+          finishedAt: Date | null;
+          syncedAt: Date;
+        }[],
       };
     }
 
@@ -731,7 +748,7 @@ export class BookRepository {
         .orderBy(asc(bookSeriesMemberships.bookId), asc(bookSeriesMemberships.displayOrder), asc(bookSeriesMemberships.seriesId)),
     ]);
 
-    const [statusRows, fileProgressRows, audiobookProgressRows] = await Promise.all([
+    const [statusRows, fileProgressRows, audiobookProgressRows, externalReadingRows] = await Promise.all([
       this.db
         .select({
           bookId: userBookStatus.bookId,
@@ -761,6 +778,23 @@ export class BookRepository {
         })
         .from(audiobookProgress)
         .where(and(eq(audiobookProgress.userId, userId), inArray(audiobookProgress.bookId, bookIds))),
+      this.db
+        .select({
+          bookId: externalBookSources.bookId,
+          provider: externalBookSources.provider,
+          externalId: externalBookSources.externalId,
+          mediaKind: externalBookSources.mediaKind,
+          sourceUrl: externalBookSources.sourceUrl,
+          remoteStatus: externalBookSources.remoteStatus,
+          percentage: externalBookSources.percentage,
+          positionSeconds: externalBookSources.positionSeconds,
+          durationSeconds: externalBookSources.durationSeconds,
+          startedAt: externalBookSources.startedAt,
+          finishedAt: externalBookSources.finishedAt,
+          syncedAt: externalBookSources.syncedAt,
+        })
+        .from(externalBookSources)
+        .where(and(eq(externalBookSources.userId, userId), inArray(externalBookSources.bookId, bookIds))),
     ]);
 
     const fileProgressById = new Map(fileProgressRows.map((row) => [row.bookFileId, row]));
@@ -782,7 +816,7 @@ export class BookRepository {
       return [{ bookFileId: book.primaryFileId, percentage: mergedPercentage }];
     });
 
-    return { authorRows, fileRows, genreRows, tagRows, progressRows, statusRows, narratorRows, seriesMembershipRows };
+    return { authorRows, fileRows, genreRows, tagRows, progressRows, statusRows, narratorRows, seriesMembershipRows, externalReadingRows };
   }
 
   async findCardsByBookIds(bookIds: number[], userId: number) {
@@ -797,6 +831,7 @@ export class BookRepository {
         statusRows: [],
         narratorRows: [],
         seriesMembershipRows: [],
+        externalReadingRows: [],
         total: 0,
       };
     }
@@ -884,6 +919,20 @@ export class BookRepository {
       seriesIndex: string | null;
       displayOrder: number;
       expectedBookCount: number | null;
+    }[];
+    externalReadingRows: {
+      bookId: number;
+      provider: string;
+      externalId: string;
+      mediaKind: string;
+      sourceUrl: string;
+      remoteStatus: string;
+      percentage: number | null;
+      positionSeconds: number | null;
+      durationSeconds: number | null;
+      startedAt: Date | null;
+      finishedAt: Date | null;
+      syncedAt: Date;
     }[];
     total: number;
     bookTotal: number;
@@ -1520,6 +1569,25 @@ export class BookRepository {
       .innerJoin(collections, and(eq(collections.id, collectionBooks.collectionId), eq(collections.userId, userId)))
       .where(eq(collectionBooks.bookId, bookId))
       .orderBy(collections.name);
+  }
+
+  async findExternalReadingByBook(userId: number, bookId: number) {
+    return this.db
+      .select({
+        provider: externalBookSources.provider,
+        externalId: externalBookSources.externalId,
+        mediaKind: externalBookSources.mediaKind,
+        sourceUrl: externalBookSources.sourceUrl,
+        remoteStatus: externalBookSources.remoteStatus,
+        percentage: externalBookSources.percentage,
+        positionSeconds: externalBookSources.positionSeconds,
+        durationSeconds: externalBookSources.durationSeconds,
+        startedAt: externalBookSources.startedAt,
+        finishedAt: externalBookSources.finishedAt,
+        syncedAt: externalBookSources.syncedAt,
+      })
+      .from(externalBookSources)
+      .where(and(eq(externalBookSources.userId, userId), eq(externalBookSources.bookId, bookId)));
   }
 
   async findReadAloudSyncMode(userId: number, bookId: number): Promise<'auto' | 'disabled'> {

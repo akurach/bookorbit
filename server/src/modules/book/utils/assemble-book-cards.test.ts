@@ -172,6 +172,55 @@ describe('assembleBookCards', () => {
     expect(card.readingProgress).toBeNull();
   });
 
+  it('falls back to a user external snapshot only when local progress is absent', () => {
+    const external = [
+      {
+        bookId: 1,
+        provider: 'yandexBooks',
+        externalId: 'book-1',
+        mediaKind: 'ebook',
+        sourceUrl: 'https://books.yandex.ru/books/book-1',
+        remoteStatus: 'reading',
+        percentage: 45,
+        positionSeconds: null,
+        durationSeconds: null,
+        startedAt: null,
+        finishedAt: null,
+        syncedAt: new Date('2026-10-15T00:00:00.000Z'),
+      },
+    ];
+    const [fileless] = assembleBookCards(
+      [makeBookRow(1, { isFileless: true, catalogMediaKind: 'ebook' })],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      external,
+    );
+    const [local] = assembleBookCards(
+      [makeBookRow(1)],
+      [],
+      [{ bookId: 1, id: 10, format: 'epub', role: 'primary', sizeBytes: null }],
+      [],
+      [{ bookFileId: 10, percentage: 12 }],
+      [],
+      [],
+      [],
+      [],
+      [],
+      external,
+    );
+
+    expect(fileless.readingProgress).toBe(45);
+    expect(fileless.externalReading).toEqual([expect.objectContaining({ externalId: 'book-1', percentage: 45 })]);
+    expect(local.readingProgress).toBe(12);
+  });
+
   it('returns null readingProgress when progress is not recorded for the file', () => {
     const rows = [makeBookRow(1)];
     const fileRows = [{ bookId: 1, id: 10, format: 'epub', role: 'primary', sizeBytes: null }];

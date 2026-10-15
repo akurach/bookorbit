@@ -3,12 +3,13 @@ import { Permission } from '@bookorbit/types'
 import { INTEGRATION_TAB_INFO, INTEGRATION_TABS, normalizeIntegrationTab } from '../integration-tabs'
 
 describe('integration-tabs', () => {
-  it('contains Hardcover, Readwise, and StoryGraph', () => {
-    expect(INTEGRATION_TABS).toEqual(['hardcover', 'readwise', 'storygraph'])
+  it('contains Hardcover, Yandex Books, Readwise, and StoryGraph', () => {
+    expect(INTEGRATION_TABS).toEqual(['hardcover', 'yandexBooks', 'readwise', 'storygraph'])
   })
 
   it('associates each tab with its sync permission', () => {
     expect(INTEGRATION_TAB_INFO.hardcover.permission).toBe(Permission.HardcoverSync)
+    expect(INTEGRATION_TAB_INFO.yandexBooks.permission).toBe(Permission.YandexBooksSync)
     expect(INTEGRATION_TAB_INFO.readwise.permission).toBe(Permission.ReadwiseSync)
     expect(INTEGRATION_TAB_INFO.storygraph.permission).toBe(Permission.StorygraphSync)
   })
@@ -20,6 +21,7 @@ describe('integration-tabs', () => {
 
   it('accepts each integration tab', () => {
     expect(normalizeIntegrationTab('hardcover')).toBe('hardcover')
+    expect(normalizeIntegrationTab('yandexBooks')).toBe('yandexBooks')
     expect(normalizeIntegrationTab('readwise')).toBe('readwise')
     expect(normalizeIntegrationTab('storygraph')).toBe('storygraph')
   })
