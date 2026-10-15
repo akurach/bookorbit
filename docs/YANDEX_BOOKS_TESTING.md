@@ -46,8 +46,10 @@ Each suite writes its own JUnit report under `test-results/server/`.
 - The first push, unavailable comparison history, or a manual run selects both.
 - Shared book logic, schemas/migrations, types, test infrastructure and dependency
   changes select both suites. Unrelated changes select neither.
-- A selected run executes `pnpm verify` and the existing reusable E2E runner with
-  PostgreSQL 18. Each suite publishes its JUnit report as a seven-day artifact.
+- A selected run executes the checks from `pnpm verify` in three parallel jobs:
+  lint/types/policy scripts, server unit tests and client unit tests. The E2E jobs
+  use the existing reusable runner with PostgreSQL 18. Each suite publishes its
+  JUnit report as a seven-day artifact.
 - The final gate requires all selected checks to succeed. Replaced runs on the
   same branch are cancelled.
 

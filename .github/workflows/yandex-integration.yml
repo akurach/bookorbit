@@ -42,11 +42,21 @@ jobs:
         run: echo "matrix=$(node scripts/e2e/select-yandex-matrix.mjs)" >> "$GITHUB_OUTPUT"
 
   quality:
-    name: Fork quality checks
+    name: Fork quality - ${{ matrix.name }}
     needs: setup
     if: needs.setup.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lint, types and policies
+            command: pnpm verify:fast && pnpm test:charts && pnpm test:pr-policy
+          - name: Server unit tests
+            command: pnpm test:server
+          - name: Client unit tests
+            command: pnpm test:client
     env:
       NODE_ENV: test
       JWT_SECRET: yandex-ci-fixture-secret
@@ -54,8 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-node-pnpm
-      - name: Verify lint, types and unit tests
-        run: pnpm verify
+      - name: Run quality check
+        run: ${{ matrix.command }}
 
   e2e:
     needs: setup

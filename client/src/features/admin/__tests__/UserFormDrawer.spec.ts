@@ -146,7 +146,8 @@ describe('UserFormDrawer permissions', () => {
 
     const deleteBooks = wrapper.findAll('label').find((label) => label.text().includes('Delete books'))
     expect(deleteBooks?.text()).toContain('Manage')
-    expect(wrapper.text()).toContain('What this account is allowed to do. 2 of 26 granted.')
+    expect(wrapper.text()).toContain('Yandex Books import')
+    expect(wrapper.text()).toContain('What this account is allowed to do. 2 of 27 granted.')
   })
 
   it('reports the preset the selection matches', async () => {

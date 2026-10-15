@@ -36,6 +36,7 @@ test("reading API, UI and file-attachment changes select the reading suite", () 
   for (const path of [
     "server/src/modules/yandex-books/yandex-books-sync.service.ts",
     "client/src/features/yandex-books/components/YandexBooksSettings.vue",
+    "client/src/features/admin/__tests__/UserFormDrawer.spec.ts",
     "server/src/modules/upload/upload.service.ts",
     "server/src/modules/scanner/scanner.service.ts",
     "server/test/yandex-books-reading.e2e-spec.ts",
