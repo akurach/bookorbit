@@ -1,7 +1,8 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
+import { Permission } from '@bookorbit/types';
 import type { ConcreteBookMediaKind, ExternalCatalogItem, ExternalStatusPolicy } from '@bookorbit/types';
 
 import { DB } from '../../db';
@@ -10,6 +11,8 @@ import { authors, bookAuthors, bookFiles, bookMetadata, books, externalBookSourc
 import type { RequestUser } from '../../common/types/request-user';
 import { LibraryService } from '../library/library.service';
 import { buildContentFilterClauses } from '../../common/utils/content-filter-sql.utils';
+import { matchExternalCatalogBook } from './external-catalog-matching';
+import { assertPristineExternalPlaceholder } from './external-catalog-placeholder';
 import { BookCoverStore } from '../book-cover-store/book-cover-store.service';
 
 const YANDEX_COVER_HOSTS = new Set(['api.bookmate.ru']);
@@ -37,6 +40,7 @@ type Destination = { libraryId: number; libraryFolderId: number };
 
 @Injectable()
 export class ExternalCatalogService {
+  private readonly logger = new Logger(ExternalCatalogService.name);
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly libraryService: LibraryService,
@@ -58,6 +62,68 @@ export class ExternalCatalogService {
     const result = await this.db.transaction((tx) => this.importInTransaction(tx, user, destination, item, existingBookId, statusPolicy));
     if (result.created && item.coverUrl) await this.savePublicCover(result.bookId, item.mediaKind, item.coverUrl);
     return result;
+  }
+
+  async relinkItem(
+    user: RequestUser,
+    destination: Destination,
+    item: ExternalCatalogItem,
+    previousBookId: number,
+    targetBookId: number,
+    entryId: number,
+    statusPolicy: ExternalStatusPolicy,
+  ): Promise<{ bookId: number; statusConflict: boolean } | null> {
+    if (previousBookId === targetBookId) throw new BadRequestException('Choose a different existing book');
+    await this.verifyDestination(user, destination);
+    await this.verifyExplicitTarget(user, destination, item.mediaKind, targetBookId);
+    const priorSource = await this.findSource(this.db, user.id, item);
+    if (!priorSource) return null;
+    if (!user.isSuperuser && !user.permissions.includes(Permission.LibraryDeleteBooks)) {
+      throw new ForbiddenException('Deleting the imported placeholder requires permission to delete books');
+    }
+    await this.verifyExplicitTarget(user, destination, item.mediaKind, previousBookId);
+    const started = Date.now();
+    this.logger.log(`[external_catalog.relink] [start] userId=${user.id} bookId=${previousBookId} targetBookId=${targetBookId} - relink started`);
+    try {
+      const result = await this.db.transaction(async (tx) => {
+        await tx
+          .select({ id: books.id })
+          .from(books)
+          .where(inArray(books.id, [previousBookId, targetBookId]))
+          .orderBy(books.id)
+          .for('update');
+        const source = await this.findSource(tx, user.id, item, true);
+        if (!source || source.bookId !== previousBookId) throw new ConflictException('The source link changed. Reload the entries and try again.');
+        await assertPristineExternalPlaceholder(tx, user.id, previousBookId, entryId, item, source);
+        const statusConflict = await this.upsertSourceAndStatus(tx, user.id, targetBookId, item, source, statusPolicy);
+        await tx
+          .update(schema.yandexBooksEntries)
+          .set({
+            bookId: targetBookId,
+            state: statusConflict ? 'conflict' : 'imported',
+            conflict: statusConflict ? 'Local reading status needs review' : null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(schema.yandexBooksEntries.id, entryId), eq(schema.yandexBooksEntries.userId, user.id)));
+        await tx.delete(books).where(eq(books.id, previousBookId));
+        return { bookId: targetBookId, statusConflict };
+      });
+      // Only cached provider cover images exist on a pristine fileless placeholder.
+      try {
+        await this.coverStore.removeCoverDirectory(previousBookId);
+      } catch {
+        this.logger.warn(`[external_catalog.relink] [fail] userId=${user.id} bookId=${previousBookId} - obsolete cover cache cleanup failed`);
+      }
+      this.logger.log(
+        `[external_catalog.relink] [end] userId=${user.id} bookId=${previousBookId} targetBookId=${targetBookId} durationMs=${Date.now() - started} - relink completed`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.warn(
+        `[external_catalog.relink] [fail] userId=${user.id} bookId=${previousBookId} targetBookId=${targetBookId} durationMs=${Date.now() - started} - relink rejected; books preserved`,
+      );
+      throw error;
+    }
   }
 
   /** Validates an explicit link without moving files or changing reader state. */
@@ -87,19 +153,10 @@ export class ExternalCatalogService {
     statusPolicy: ExternalStatusPolicy,
   ): Promise<{ bookId: number; created: boolean; statusConflict: boolean }> {
     const existingSource = await this.findSource(tx, user.id, item);
-    let bookId = existingBookId ?? existingSource?.bookId ?? null;
+    let bookId: number | null = existingBookId ?? existingSource?.bookId ?? null;
     let created = false;
 
-    if (bookId == null && item.mediaKind === 'ebook') {
-      const exactMatches = await tx
-        .select({ id: books.id })
-        .from(books)
-        .innerJoin(bookMetadata, eq(bookMetadata.bookId, books.id))
-        .where(and(eq(books.libraryId, destination.libraryId), eq(bookMetadata.yandexBooksId, item.externalId)))
-        .limit(2);
-      if (exactMatches.length === 1) bookId = exactMatches[0]!.id;
-      if (exactMatches.length > 1) throw new BadRequestException('More than one book has this Yandex Books edition. Link one explicitly.');
-    }
+    if (bookId == null) bookId = await matchExternalCatalogBook(tx, user, destination.libraryId, item);
 
     if (bookId == null) {
       const folderPath = await this.externalFolderPath(tx, destination.libraryFolderId, item);
@@ -129,6 +186,7 @@ export class ExternalCatalogService {
       }
     }
 
+    if (bookId == null) throw new BadRequestException('Could not determine the catalog book');
     if (created) {
       await this.upsertMetadata(tx, bookId, item);
       await this.upsertAuthors(tx, bookId, item.authors);
@@ -170,8 +228,13 @@ export class ExternalCatalogService {
     return `${folder.path.replace(/\/+$/, '')}/Yandex Books/${item.mediaKind}-${item.externalId}`;
   }
 
-  private async findSource(tx: Db | Transaction, userId: number, item: ExternalCatalogItem) {
-    const [source] = await tx
+  private async findSource(
+    tx: Db | Transaction,
+    userId: number,
+    item: ExternalCatalogItem,
+    lock = false,
+  ): Promise<typeof externalBookSources.$inferSelect | null> {
+    const query = tx
       .select()
       .from(externalBookSources)
       .where(
@@ -183,6 +246,7 @@ export class ExternalCatalogService {
         ),
       )
       .limit(1);
+    const [source] = await (lock ? query.for('update') : query);
     return source ?? null;
   }
 
@@ -291,7 +355,7 @@ export class ExternalCatalogService {
       finishedAt: this.toDate(item.finishedAt),
       sourceUpdatedAt: this.toDate(item.sourceUpdatedAt),
       syncedAt: now,
-      lastAppliedStatusAt: applyStatus ? now : (source?.lastAppliedStatusAt ?? null),
+      lastAppliedStatusAt: applyStatus ? now : source?.bookId === bookId ? source.lastAppliedStatusAt : null,
     };
     await tx
       .insert(externalBookSources)

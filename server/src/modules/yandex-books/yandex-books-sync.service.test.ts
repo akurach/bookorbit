@@ -76,7 +76,7 @@ function make() {
   };
   const settings = { requireImportAccess: vi.fn().mockResolvedValue(user), decryptToken: vi.fn().mockReturnValue('plain') };
   const client = { collectPages: vi.fn() };
-  const catalog = { importItem: vi.fn(), verifyLinkTarget: vi.fn() };
+  const catalog = { importItem: vi.fn(), verifyLinkTarget: vi.fn(), relinkItem: vi.fn() };
   return { service: new YandexBooksSyncService(repo as any, settings as any, client as any, catalog as any), repo, settings, client, catalog };
 }
 
@@ -127,6 +127,23 @@ describe('YandexBooksSyncService lifecycle', () => {
     await wait();
     expect(catalog.importItem).toHaveBeenCalledTimes(101);
     expect(repo.importableEntries.mock.calls.map((call: any[]) => call[2])).toEqual([0, 100, 101]);
+  });
+
+  it('repairs an imported link through the guarded catalog operation', async () => {
+    const { service, repo, catalog } = make();
+    repo.findEntry.mockResolvedValueOnce({ ...entry(1), bookId: 20 }).mockResolvedValueOnce({ ...entry(1), bookId: 10, state: 'imported' });
+    catalog.relinkItem.mockResolvedValue({ bookId: 10, statusConflict: false });
+    expect((await service.link(user, 1, 10)).bookId).toBe(10);
+    expect(catalog.relinkItem).toHaveBeenCalledWith(user, lease, item, 20, 10, 1, 'safe');
+    expect(repo.updateEntry).not.toHaveBeenCalled();
+  });
+
+  it('preserves an imported link when the old card is protected', async () => {
+    const { service, repo, catalog } = make();
+    repo.findEntry.mockResolvedValue({ ...entry(1), bookId: 20 });
+    catalog.relinkItem.mockRejectedValue(new ConflictException('Protected card'));
+    await expect(service.link(user, 1, 10)).rejects.toThrow('Protected card');
+    expect(repo.updateEntry).not.toHaveBeenCalled();
   });
 
   it('returns accepted only after it acquires the durable lease', async () => {

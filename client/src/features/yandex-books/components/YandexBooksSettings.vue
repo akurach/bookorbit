@@ -42,6 +42,7 @@ const tokenVisible = ref(false)
 const selectedState = ref<string>('')
 const linkEntryId = ref<number | null>(null)
 const linkedBook = ref<BookCard | null>(null)
+const linking = ref(false)
 const form = reactive({
   libraryId: 0,
   libraryFolderId: 0,
@@ -111,6 +112,10 @@ function handleOpenLink(entry: YandexBooksEntry): void {
   linkedBook.value = null
 }
 
+function canLinkEntry(entry: YandexBooksEntry): boolean {
+  return canImport.value && (!entry.bookId || hasPermission(Permission.LibraryDeleteBooks))
+}
+
 function handleCancelLink(): void {
   linkEntryId.value = null
   linkedBook.value = null
@@ -118,12 +123,17 @@ function handleCancelLink(): void {
 
 async function handleLinkEntry(): Promise<void> {
   if (!linkEntryId.value || !linkedBook.value) return
-  const ok = await linkEntry(linkEntryId.value, linkedBook.value.id)
-  if (ok) {
-    handleCancelLink()
-    toast.success(t('yandexBooks.toast.linked'))
-  } else {
-    toast.error(error.value ?? t('yandexBooks.toast.linkFailed'))
+  linking.value = true
+  try {
+    const ok = await linkEntry(linkEntryId.value, linkedBook.value.id)
+    if (ok) {
+      handleCancelLink()
+      toast.success(t('yandexBooks.toast.linked'))
+    } else {
+      toast.error(error.value ?? t('yandexBooks.toast.linkFailed'))
+    }
+  } finally {
+    linking.value = false
   }
 }
 
@@ -395,13 +405,20 @@ onUnmounted(stopPolling)
             <span v-if="progressLabel(entry)">{{ t('yandexBooks.entries.progress', { value: progressLabel(entry) }) }}</span>
             <span v-if="entry.bookId" class="text-primary">{{ t('yandexBooks.entries.linked') }}</span>
           </div>
-          <div v-if="!entry.bookId && canImport" class="flex items-center gap-2 text-xs">
-            <Button variant="outline" size="sm" type="button" @click="handleOpenLink(entry)">{{ t('yandexBooks.entries.linkExisting') }}</Button>
+          <div v-if="canLinkEntry(entry)" class="flex items-center gap-2 text-xs">
+            <Button variant="outline" size="sm" type="button" :disabled="linking" @click="handleOpenLink(entry)">
+              {{ entry.bookId ? t('yandexBooks.entries.changeLink') : t('yandexBooks.entries.linkExisting') }}
+            </Button>
           </div>
           <div v-if="linkEntryId === entry.id" class="flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-xs">
-            <YandexBooksBookPicker v-model="linkedBook" :library-id="form.libraryId" />
-            <Button size="sm" type="button" :disabled="!linkedBook" @click="handleLinkEntry">{{ t('yandexBooks.entries.link') }}</Button>
-            <Button size="sm" variant="ghost" type="button" @click="handleCancelLink">{{ t('yandexBooks.entries.cancel') }}</Button>
+            <YandexBooksBookPicker v-model="linkedBook" :library-id="form.libraryId" :exclude-book-id="entry.bookId" :disabled="linking" />
+            <Button size="sm" type="button" :disabled="!linkedBook || linking" @click="handleLinkEntry">
+              <Loader2 v-if="linking" class="size-3 animate-spin" />{{ t('yandexBooks.entries.link') }}
+            </Button>
+            <Button size="sm" variant="ghost" type="button" :disabled="linking" @click="handleCancelLink">{{
+              t('yandexBooks.entries.cancel')
+            }}</Button>
+            <p v-if="entry.bookId" class="basis-full text-muted-foreground">{{ t('yandexBooks.entries.duplicateRepairHint') }}</p>
           </div>
           <div v-if="entry.state === 'conflict'" class="flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-xs">
             <span class="min-w-0 flex-1 text-muted-foreground">{{ entry.conflict ?? t('yandexBooks.entries.conflictHint') }}</span>

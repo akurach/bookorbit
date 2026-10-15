@@ -50,7 +50,10 @@ export class YandexBooksSyncService implements OnModuleDestroy {
       const connection = await this.idleConnection(user.id);
       const freshUser = await this.settings.requireImportAccess(user.id, connection);
       const entry = await this.requiredEntry(user.id, entryId);
-      if (entry.bookId && entry.bookId !== bookId) throw new ConflictException('This entry is already linked. Attach a file to its existing book.');
+      if (entry.bookId && entry.bookId !== bookId) {
+        const result = await this.catalog.relinkItem(freshUser, connection, entry.snapshot, entry.bookId, bookId, entry.id, entry.statusPolicy);
+        if (result) return this.entry(await this.requiredEntry(user.id, entryId));
+      }
       await this.catalog.verifyLinkTarget(freshUser, bookId, entry.snapshot, connection.libraryId);
       return this.entry(await this.repo.updateEntry(entryId, user.id, { bookId, state: 'ready', conflict: null }));
     });
@@ -195,7 +198,7 @@ export class YandexBooksSyncService implements OnModuleDestroy {
       if (!(error instanceof BadRequestException || error instanceof NotFoundException)) throw error;
       await this.repo.updateEntry(entry.id, user.id, {
         state: 'conflict',
-        conflict: 'Check the linked book, edition and destination library before retrying',
+        conflict: error instanceof BadRequestException ? error.message : 'Check the linked book, edition and destination library before retrying',
       });
       result.conflicts++;
     }

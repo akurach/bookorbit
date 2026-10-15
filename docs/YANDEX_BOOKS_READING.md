@@ -34,8 +34,11 @@ The account endpoints are unofficial and can change independently of BookOrbit.
 ## Import semantics
 
 Provider, media kind and remote ID identify an edition. Text and audio stay
-distinct. Existing exact provider links are reused; title similarity alone never
-merges books. Repeated imports update the same entries. A missing source item
+distinct. Before creating a card, import reuses an existing provider link, a valid
+ISBN match, or an exact normalized title and author set in the destination library.
+Ambiguous matches, conflicting editions or author spellings require an explicit
+link; they do not create another card. Short titles and saturated candidate lists
+also fail safely. Repeated imports update the same entries. A missing source item
 does not delete a local book. A preview stages snapshots without creating books.
 Incomplete fetches do not become a new complete import snapshot.
 
@@ -67,6 +70,19 @@ Refresh uses paginated pulls and a database lease to prevent overlapping runs.
 An expired lease allows recovery after restart. Authentication errors require
 reconnection; other failures preserve imported data and retry later. Disconnecting
 removes credentials and stops updates, keeping books and local reading data.
+
+## Correcting an imported duplicate
+
+Use **Change linked book** beside an imported entry to select its existing local
+book. This requires **Delete books** as well as import/upload permissions. The
+operation moves the Yandex source and its import record atomically, then removes
+only the untouched, fileless placeholder. It preserves the target book ID, files,
+metadata, notes and reader positions. A conflicting local status still needs review.
+
+If the placeholder has a file, edited metadata/status, notes, collections or other
+references (including another user's data), the operation refuses to delete it.
+Review those books manually. Selecting the same card is never a deletion operation.
+This is not a general-purpose merge of two books with local history.
 
 ## Development boundaries
 
