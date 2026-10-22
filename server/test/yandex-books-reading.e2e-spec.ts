@@ -5,6 +5,7 @@ import { Permission, type BookDetail, type ExternalCatalogItem } from '@bookorbi
 
 import * as schema from '../src/db/schema';
 import { ExternalCatalogService } from '../src/modules/book/external-catalog.service';
+import { DashboardWidgetService } from '../src/modules/dashboard/dashboard-widget.service';
 import { UserService } from '../src/modules/user/user.service';
 import { YandexBooksClientService } from '../src/modules/yandex-books/yandex-books-client.service';
 import { buildFb2Fixture } from './e2e/authorization-matrix/authorization-matrix-fixture-builder';
@@ -78,6 +79,12 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     return result;
   }
 
+  async function reader(userId: number) {
+    const result = await ctx.app.get(UserService).findByIdWithPermissions(userId);
+    if (!result) throw new Error('Test reader missing');
+    return result;
+  }
+
   async function detail(bookId: number, token = session.accessToken): Promise<BookDetail> {
     const response = await ctx.app.inject({ method: 'GET', url: `/api/v1/books/${bookId}`, headers: authHeader(token) });
     expect(response.statusCode, response.body).toBe(200);
@@ -85,6 +92,10 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
   }
 
   async function attach(bookId: number) {
+    return attachFor(session, bookId);
+  }
+
+  async function attachFor(actor: TestUserSession, bookId: number) {
     const boundary = `----bookorbit-yandex-${randomUUID()}`;
     const body = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture-${bookId}.fb2"\r\nContent-Type: application/octet-stream\r\n\r\n${buildFb2Fixture({ title: `Fixture ${bookId}` })}\r\n--${boundary}--\r\n`,
@@ -92,9 +103,46 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     return ctx.app.inject({
       method: 'POST',
       url: `/api/v1/books/${bookId}/files`,
-      headers: { ...authHeader(session.accessToken), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      headers: { ...authHeader(actor.accessToken), 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: body,
     });
+  }
+
+  async function currentlyReading(token: string) {
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/dashboard/widgets/currently-reading', headers: authHeader(token) });
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json<{ books: Array<{ bookId: number; progress: number }> }>().books;
+  }
+
+  function clearCurrentlyReadingCache(userId: number) {
+    ctx.app.get(DashboardWidgetService).clearCacheForUser(userId);
+  }
+
+  async function createIsolatedReader() {
+    const actor = await createUserAndLogin(ctx, {
+      permissions: [Permission.YandexBooksSync, Permission.LibraryUpload, Permission.LibraryDeleteBooks],
+    });
+    const destination = await createLibraryWithFolder(ctx, { mode: 'book_per_folder' });
+    await grantLibraryAccess(ctx, actor.userId, destination.libraryId, 'editor');
+    return { actor, destination, actorUser: await reader(actor.userId) };
+  }
+
+  async function localBookFor(
+    actor: TestUserSession,
+    actorUser: Awaited<ReturnType<typeof reader>>,
+    destination: Awaited<ReturnType<typeof createLibraryWithFolder>>,
+    source: ExternalCatalogItem,
+  ) {
+    const imported = await catalog.importItem(actorUser, destination, { ...source, title: `Fixture ${randomUUID()}` });
+    expect((await attachFor(actor, imported.bookId)).statusCode).toBe(201);
+    await ctx.db.delete(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, imported.bookId));
+    await ctx.db
+      .delete(schema.userBookStatus)
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+    await ctx.db.update(schema.bookMetadata).set({ title: source.title, yandexBooksId: null }).where(eq(schema.bookMetadata.bookId, imported.bookId));
+    const [file] = await ctx.db.select().from(schema.bookFiles).where(eq(schema.bookFiles.bookId, imported.bookId));
+    if (!file) throw new Error('Local fixture file missing');
+    return { bookId: imported.bookId, fileId: file.id };
   }
 
   const request = (token: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, payload?: Record<string, unknown>) =>
@@ -146,6 +194,270 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     expect(book.status).toBe('present');
     expect(book.files).toEqual([]);
     expect(book.externalReading).toEqual([expect.objectContaining({ percentage: 45, remoteStatus: 'reading' })]);
+  });
+
+  it('does not rewrite an owned status for repeated identical safe or remote imports, but applies a changed remote status', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const source = item({ title: 'Idempotent status ownership fixture', startedAt: '2025-01-02T00:00:00.000Z' });
+    const imported = await catalog.importItem(actorUser, destination, source);
+    const ownershipAt = new Date('2025-02-01T00:00:00.000Z');
+    const staleSync = new Date('2025-01-01T00:00:00.000Z');
+    await ctx.db
+      .update(schema.userBookStatus)
+      .set({ updatedAt: ownershipAt, source: 'auto' })
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ lastAppliedStatusAt: ownershipAt, syncedAt: staleSync })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+
+    await catalog.importItem(actorUser, destination, source, imported.bookId, 'safe');
+    await catalog.importItem(actorUser, destination, source, imported.bookId, 'remote');
+    const [unchangedStatus] = await ctx.db
+      .select()
+      .from(schema.userBookStatus)
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+    const [unchangedSource] = await ctx.db
+      .select()
+      .from(schema.externalBookSources)
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+    expect(unchangedStatus.updatedAt).toEqual(ownershipAt);
+    expect(unchangedSource.lastAppliedStatusAt).toEqual(ownershipAt);
+    expect(unchangedSource.syncedAt.getTime()).toBeGreaterThan(staleSync.getTime());
+
+    const changed = { ...source, remoteStatus: 'finished', status: 'read' as const, finishedAt: '2025-02-10T00:00:00.000Z' };
+    await catalog.importItem(actorUser, destination, changed, imported.bookId, 'remote');
+    const [appliedStatus] = await ctx.db
+      .select()
+      .from(schema.userBookStatus)
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+    const [appliedSource] = await ctx.db
+      .select()
+      .from(schema.externalBookSources)
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+    expect(appliedStatus).toMatchObject({ status: 'read', finishedAt: new Date('2025-02-10T00:00:00.000Z') });
+    expect(appliedStatus.updatedAt.getTime()).toBeGreaterThan(ownershipAt.getTime());
+    expect(appliedSource.lastAppliedStatusAt?.getTime()).toBeGreaterThan(ownershipAt.getTime());
+  });
+
+  it('keeps the status ownership marker when a local manual edit blocks a safe import', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const source = item({ title: 'Manual ownership fixture' });
+    const imported = await catalog.importItem(actorUser, destination, source);
+    const ownershipAt = new Date('2025-02-01T00:00:00.000Z');
+    const manualAt = new Date('2025-02-02T00:00:00.000Z');
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ lastAppliedStatusAt: ownershipAt })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+    await ctx.db
+      .update(schema.userBookStatus)
+      .set({ status: 'abandoned', source: 'manual', updatedAt: manualAt })
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+
+    const result = await catalog.importItem(actorUser, destination, { ...source, status: 'read', remoteStatus: 'finished' }, imported.bookId, 'safe');
+    const [status] = await ctx.db
+      .select()
+      .from(schema.userBookStatus)
+      .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+    const [storedSource] = await ctx.db
+      .select()
+      .from(schema.externalBookSources)
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+    expect(result.statusConflict).toBe(true);
+    expect(status).toMatchObject({ status: 'abandoned', source: 'manual', updatedAt: manualAt });
+    expect(storedSource.lastAppliedStatusAt).toEqual(ownershipAt);
+  });
+
+  it('keeps a recent KOReader position first in the ten current books despite old or unknown Yandex source timestamps and reimports', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const ko = await localBookFor(actor, actorUser, destination, item({ title: 'KOReader recent fixture' }));
+    const koReadAt = new Date('2025-04-01T00:00:00.000Z');
+    await ctx.db.insert(schema.readingProgress).values({
+      userId: actor.userId,
+      bookFileId: ko.fileId,
+      percentage: 3.52,
+      koreaderProgress: '/body/DocFragment[1]/body/p[4]/text().2',
+      lastReadAt: koReadAt,
+      updatedAt: koReadAt,
+    });
+    await ctx.db
+      .insert(schema.userBookStatus)
+      .values({ userId: actor.userId, bookId: ko.bookId, status: 'reading', source: 'auto', updatedAt: new Date('2025-01-01T00:00:00.000Z') });
+
+    const yandexItems = Array.from({ length: 11 }, (_, index) =>
+      item({ title: `Old Yandex ${index}`, sourceUpdatedAt: index % 2 === 0 ? null : '2025-02-01T00:00:00.000Z', percentage: index + 10 }),
+    );
+    const yandexBookIds: number[] = [];
+    for (const yandex of yandexItems) {
+      const imported = await catalog.importItem(actorUser, destination, yandex);
+      yandexBookIds.push(imported.bookId);
+      await ctx.db
+        .update(schema.userBookStatus)
+        .set({ updatedAt: new Date('2025-05-01T00:00:00.000Z') })
+        .where(and(eq(schema.userBookStatus.userId, actor.userId), eq(schema.userBookStatus.bookId, imported.bookId)));
+      await ctx.db
+        .update(schema.externalBookSources)
+        .set({ lastAppliedStatusAt: new Date('2025-05-01T00:00:00.000Z'), syncedAt: new Date('2025-05-01T00:00:00.000Z') })
+        .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, imported.bookId)));
+    }
+
+    clearCurrentlyReadingCache(actor.userId);
+    const firstRead = await currentlyReading(actor.accessToken);
+    expect(firstRead).toHaveLength(10);
+    expect(firstRead[0]).toMatchObject({ bookId: ko.bookId, progress: 3.52 });
+    await catalog.importItem(actorUser, destination, yandexItems[0]!, yandexBookIds[0]!, 'safe');
+    clearCurrentlyReadingCache(actor.userId);
+    const afterReimport = await currentlyReading(actor.accessToken);
+    expect(afterReimport[0]).toMatchObject({ bookId: ko.bookId, progress: 3.52 });
+  });
+
+  it.each([
+    ['newer local text', '2025-04-01T00:00:00.000Z', '2025-02-01T00:00:00.000Z', '2025-03-01T00:00:00.000Z', 31],
+    ['newer audio', '2025-02-01T00:00:00.000Z', '2025-04-01T00:00:00.000Z', '2025-03-01T00:00:00.000Z', 62],
+    ['newer external source', '2025-02-01T00:00:00.000Z', '2025-03-01T00:00:00.000Z', '2025-04-01T00:00:00.000Z', 84],
+    ['equal local text and external source', '2025-04-01T00:00:00.000Z', '2025-02-01T00:00:00.000Z', '2025-04-01T00:00:00.000Z', 31],
+  ])('uses %s to choose currently-reading progress', async (_caseName, textAt, audioAt, externalAt, expectedProgress) => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const local = await localBookFor(actor, actorUser, destination, item({ title: `Progress arbitration ${_caseName}` }));
+    const source = item({ title: `Progress arbitration ${_caseName}`, percentage: 84, sourceUpdatedAt: externalAt });
+    await ctx.db.insert(schema.readingProgress).values({
+      userId: actor.userId,
+      bookFileId: local.fileId,
+      percentage: 31,
+      cfi: 'epubcfi(/6/2!/4/2:5)',
+      lastReadAt: new Date(textAt),
+      textUpdatedAt: new Date(textAt),
+      updatedAt: new Date(textAt),
+    });
+    await ctx.db.insert(schema.audiobookProgress).values({
+      userId: actor.userId,
+      bookId: local.bookId,
+      currentFileId: local.fileId,
+      percentage: 62,
+      positionSeconds: 120,
+      updatedAt: new Date(audioAt),
+    });
+    await catalog.importItem(actorUser, destination, source, local.bookId, 'safe');
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: new Date(externalAt), syncedAt: new Date('2025-05-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, local.bookId)));
+
+    clearCurrentlyReadingCache(actor.userId);
+    expect(await currentlyReading(actor.accessToken)).toEqual([expect.objectContaining({ bookId: local.bookId, progress: expectedProgress })]);
+  });
+
+  it('uses an undated external percentage only as a fallback and never treats its sync time as reading activity', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const fallback = await localBookFor(actor, actorUser, destination, item({ title: 'Undated external fallback fixture' }));
+    const undated = item({ title: 'Undated external fallback fixture', percentage: 73, sourceUpdatedAt: null });
+    await catalog.importItem(actorUser, destination, undated, fallback.bookId, 'safe');
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: null, syncedAt: new Date('2025-06-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, fallback.bookId)));
+
+    clearCurrentlyReadingCache(actor.userId);
+    expect(await currentlyReading(actor.accessToken)).toEqual([expect.objectContaining({ bookId: fallback.bookId, progress: 73 })]);
+
+    await ctx.db.insert(schema.readingProgress).values({
+      userId: actor.userId,
+      bookFileId: fallback.fileId,
+      percentage: 22,
+      cfi: 'epubcfi(/6/2!/4/2:8)',
+      lastReadAt: new Date('2025-02-01T00:00:00.000Z'),
+    });
+    const rivalSource = item({ title: 'Known external activity fixture', percentage: 10, sourceUpdatedAt: '2025-03-01T00:00:00.000Z' });
+    const rival = await catalog.importItem(actorUser, destination, rivalSource);
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: new Date('2025-03-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, rival.bookId)));
+
+    clearCurrentlyReadingCache(actor.userId);
+    const books = await currentlyReading(actor.accessToken);
+    expect(books[0]).toMatchObject({ bookId: rival.bookId, progress: 10 });
+    expect(books.find((book) => book.bookId === fallback.bookId)).toMatchObject({ progress: 22 });
+  });
+
+  it('uses all own external sources for activity without duplicating a book or allowing a null percentage to erase a known position', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const main = await localBookFor(actor, actorUser, destination, item({ title: 'Multiple external sources fixture' }));
+    const known = item({ title: 'Multiple external sources fixture', percentage: 67, sourceUpdatedAt: '2025-02-01T00:00:00.000Z' });
+    const missing = item({ title: 'Multiple external sources fixture', percentage: null, sourceUpdatedAt: '2025-04-01T00:00:00.000Z' });
+    await ctx.db.insert(schema.readingProgress).values({
+      userId: actor.userId,
+      bookFileId: main.fileId,
+      percentage: 33,
+      koreaderProgress: '/body/DocFragment[1]/body/p[6]/text().1',
+      lastReadAt: new Date('2025-01-01T00:00:00.000Z'),
+    });
+    await catalog.importItem(actorUser, destination, known, main.bookId, 'safe');
+    await catalog.importItem(actorUser, destination, missing, main.bookId, 'safe');
+    const rivalSource = item({ title: 'Rival activity fixture', percentage: 11, sourceUpdatedAt: '2025-03-01T00:00:00.000Z' });
+    const rival = await catalog.importItem(actorUser, destination, rivalSource);
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: new Date('2025-02-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.externalId, known.externalId)));
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: new Date('2025-04-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.externalId, missing.externalId)));
+    await ctx.db
+      .update(schema.externalBookSources)
+      .set({ sourceUpdatedAt: new Date('2025-03-01T00:00:00.000Z') })
+      .where(and(eq(schema.externalBookSources.userId, actor.userId), eq(schema.externalBookSources.bookId, rival.bookId)));
+
+    clearCurrentlyReadingCache(actor.userId);
+    const books = await currentlyReading(actor.accessToken);
+    expect(books[0]).toMatchObject({ bookId: main.bookId, progress: 67 });
+    expect(books.filter((book) => book.bookId === main.bookId)).toHaveLength(1);
+    expect(books.some((book) => book.bookId === rival.bookId)).toBe(true);
+  });
+
+  it('ranks a recent manual mark ahead of older positions without leaking another reader source from the shared library', async () => {
+    const { actor, destination, actorUser } = await createIsolatedReader();
+    const manual = await localBookFor(actor, actorUser, destination, item({ title: 'Manual activity fixture' }));
+    const other = await createUserAndLogin(ctx);
+    await grantLibraryAccess(ctx, other.userId, destination.libraryId, 'viewer');
+    const manualAt = new Date('2025-05-01T00:00:00.000Z');
+    await ctx.db
+      .insert(schema.userBookStatus)
+      .values({ userId: actor.userId, bookId: manual.bookId, status: 'reading', source: 'manual', updatedAt: manualAt });
+    await ctx.db.insert(schema.externalBookSources).values({
+      userId: other.userId,
+      bookId: manual.bookId,
+      provider: 'yandexBooks',
+      externalId: randomUUID(),
+      mediaKind: 'ebook',
+      sourceUrl: 'https://books.yandex.ru/books/private-reader-fixture',
+      remoteStatus: 'reading',
+      percentage: 99,
+      sourceUpdatedAt: new Date('2025-06-01T00:00:00.000Z'),
+      syncedAt: new Date('2025-06-01T00:00:00.000Z'),
+    });
+    for (let index = 0; index < 10; index += 1) {
+      const old = await localBookFor(actor, actorUser, destination, item({ title: `Older local activity ${index}` }));
+      const oldAt = new Date(`2025-04-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`);
+      await ctx.db.insert(schema.readingProgress).values({
+        userId: actor.userId,
+        bookFileId: old.fileId,
+        percentage: index + 1,
+        koreaderProgress: `/body/DocFragment[1]/body/p[${index + 1}]/text().1`,
+        lastReadAt: oldAt,
+      });
+      await ctx.db
+        .insert(schema.userBookStatus)
+        .values({ userId: actor.userId, bookId: old.bookId, status: 'reading', source: 'auto', updatedAt: oldAt });
+    }
+
+    clearCurrentlyReadingCache(actor.userId);
+    const books = await currentlyReading(actor.accessToken);
+    expect(books).toHaveLength(10);
+    expect(books[0]).toMatchObject({ bookId: manual.bookId, progress: 0 });
+    expect(books[0]?.progress).not.toBe(99);
   });
 
   it('rejects reusing a source from a different destination before changing its reading snapshot', async () => {

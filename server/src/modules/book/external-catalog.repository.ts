@@ -243,6 +243,13 @@ export class ExternalCatalogRepository {
     const startedAt = this.toDate(item.startedAt);
     const finishedAt = this.toDate(item.finishedAt);
     const validFinishedAt = startedAt && finishedAt && finishedAt < startedAt ? null : finishedAt;
+    const projectionChanged =
+      currentStatus == null ||
+      currentStatus.status !== item.status ||
+      currentStatus.source !== 'auto' ||
+      (currentStatus.startedAt?.getTime() ?? null) !== (startedAt?.getTime() ?? null) ||
+      (currentStatus.finishedAt?.getTime() ?? null) !== (validFinishedAt?.getTime() ?? null);
+    applyStatus = applyStatus && projectionChanged;
     if (applyStatus) {
       if (currentStatus == null && policy === 'safe') {
         const inserted = await tx

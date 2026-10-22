@@ -17,6 +17,12 @@ The E2E suites boot NestJS against a disposable PostgreSQL database. External
 Yandex responses and credentials are synthetic. CI never needs an account token,
 access to the home Raspberry Pi, or availability of the Yandex service.
 
+The reading suite also checks the home dashboard with local KOReader positions
+and imported reading snapshots. Unchanged imports retain the status modification
+time. The widget ranks known reading activity and explicit manual reading marks,
+never the external polling time. Progress follows the newest known position;
+an external snapshot without a percentage cannot erase a known position.
+
 These are HTTP/database E2E tests and Vue integration tests, not a browser
 automation recording. A real-client recording and fresh checks against the
 approved upstream target remain part of PR preparation.
@@ -67,6 +73,9 @@ permission editor without being granted by the standard-reader preset.
 Проверки покрывают источник метаданных и импорт библиотеки: повторный импорт без
 дублей, привязку файла, защиту локальных изменений, ошибки входа, переподключение
 и разделение данных пользователей. Ответы Яндекса заменены тестовыми данными.
+Главная проверяется с одновременным чтением в KOReader и Яндексе: фоновое
+обновление не поднимает старые книги над свежим чтением, а внешний прогресс
+отображается вместе с локальным.
 
 В форке тесты запускаются при отправке изменений в ветки двух задач. CI использует
 штатный E2E-инструмент проекта, отдельную PostgreSQL и сохраняет отчёты. Это

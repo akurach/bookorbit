@@ -59,6 +59,7 @@ export const E2E_SUITES = Object.freeze({
     useDedicatedDatabase: true,
     changedPaths: [
       "server/src/modules/yandex-books/**",
+      "server/src/modules/dashboard/**",
       "server/src/modules/book/**",
       "server/src/modules/book-cover-store/**",
       "server/src/modules/scanner/**",

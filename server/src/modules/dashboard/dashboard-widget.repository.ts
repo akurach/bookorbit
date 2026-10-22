@@ -24,6 +24,7 @@ import {
   bookGenres,
   bookMetadata,
   books,
+  externalBookSources,
   genres,
   libraries,
   readingProgress,
@@ -117,7 +118,23 @@ export class DashboardWidgetRepository {
     if (accessibleLibraryIds.length === 0) return { books: [] };
 
     const cfClauses = this.getContentFilterClauses(contentFilters);
-    const mergedProgress = sql<number>`
+    const externalActivity = this.db
+      .select({ lastReadAt: externalBookSources.sourceUpdatedAt })
+      .from(externalBookSources)
+      .where(and(eq(externalBookSources.userId, userId), eq(externalBookSources.bookId, books.id), isNotNull(externalBookSources.sourceUpdatedAt)))
+      .orderBy(desc(externalBookSources.sourceUpdatedAt), desc(externalBookSources.id))
+      .limit(1)
+      .as('external_activity');
+    // A newer snapshot can have no position, so activity and known progress are selected separately.
+    const externalPosition = this.db
+      .select({ percentage: externalBookSources.percentage, lastReadAt: externalBookSources.sourceUpdatedAt })
+      .from(externalBookSources)
+      .where(and(eq(externalBookSources.userId, userId), eq(externalBookSources.bookId, books.id), isNotNull(externalBookSources.percentage)))
+      .orderBy(sql`${externalBookSources.sourceUpdatedAt} desc nulls last`, desc(externalBookSources.id))
+      .limit(1)
+      .as('external_position');
+    const localLastReadAt = sql<Date | null>`greatest(${readingProgress.lastReadAt}, ${audiobookProgress.updatedAt})`;
+    const localProgress = sql<number | null>`
       coalesce(
         (
           case
@@ -128,11 +145,27 @@ export class DashboardWidgetRepository {
           end
         ),
         ${readingProgress.percentage},
-        ${audiobookProgress.percentage},
+        ${audiobookProgress.percentage}
+      )
+    `;
+    const mergedProgress = sql<number>`
+      coalesce(
+        case
+          when ${localProgress} is null or ${localLastReadAt} is null
+            or ${externalPosition.lastReadAt} > ${localLastReadAt}
+            then coalesce(${externalPosition.percentage}, ${localProgress})
+          else ${localProgress}
+        end,
+        ${externalPosition.percentage},
         0
       )
     `;
-    const mergedLastReadAt = sql<Date | null>`coalesce(${readingProgress.lastReadAt}, ${audiobookProgress.updatedAt})`;
+    // Imported auto-status timestamps describe polling, not reading. Manual marks express reader intent.
+    const mergedLastReadAt = sql<Date | null>`greatest(
+      ${localLastReadAt},
+      ${externalActivity.lastReadAt},
+      case when ${userBookStatus.source} = 'manual' then ${userBookStatus.updatedAt} end
+    )`;
 
     const rows = await this.db
       .select({
@@ -153,6 +186,8 @@ export class DashboardWidgetRepository {
       .leftJoin(bookFiles, eq(bookFiles.id, books.primaryFileId))
       .leftJoin(readingProgress, and(isNotNull(bookFiles.id), eq(readingProgress.bookFileId, bookFiles.id), eq(readingProgress.userId, userId)))
       .leftJoin(audiobookProgress, and(eq(audiobookProgress.bookId, books.id), eq(audiobookProgress.userId, userId)))
+      .leftJoinLateral(externalActivity, sql`true`)
+      .leftJoinLateral(externalPosition, sql`true`)
       .where(
         and(
           eq(userBookStatus.userId, userId),
@@ -161,7 +196,7 @@ export class DashboardWidgetRepository {
           ...cfClauses,
         ),
       )
-      .orderBy(desc(sql`coalesce(${readingProgress.lastReadAt}, ${audiobookProgress.updatedAt}, ${userBookStatus.updatedAt})`))
+      .orderBy(sql`${mergedLastReadAt} desc nulls last`, desc(userBookStatus.updatedAt), desc(books.id))
       .limit(CURRENTLY_READING_LIMIT);
 
     if (rows.length === 0) return { books: [] };
