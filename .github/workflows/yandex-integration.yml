@@ -58,6 +58,7 @@ jobs:
           - name: Client unit tests
             command: pnpm test:client
     env:
+      NODE_OPTIONS: --max-old-space-size=8192
       NODE_ENV: test
       JWT_SECRET: yandex-ci-fixture-secret
       DATABASE_URL: postgres://bookorbit:bookorbit@localhost:5432/bookorbit_e2e
@@ -91,6 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      NODE_OPTIONS: --max-old-space-size=8192
       VITE_SOURCE_CODE_URL: https://github.com/akurach/bookorbit/tree/${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
