@@ -31,7 +31,6 @@ export interface ParsedOpf {
   koboId: string | null;
   lubimyczytacId: string | null;
   aladinId: string | null;
-  yandexBooksId: string | null;
   itunesId: string | null;
   customMetadata: Record<string, string>;
   coverHref: string | null;
@@ -128,18 +127,7 @@ function parseBookOrbitTags(raw: string | null): string[] {
 }
 
 type ProviderKey =
-  | 'google'
-  | 'amazon'
-  | 'goodreads'
-  | 'hardcover'
-  | 'hardcoverEdition'
-  | 'openlibrary'
-  | 'ranobedb'
-  | 'kobo'
-  | 'lubimyczytac'
-  | 'aladin'
-  | 'yandexbooks'
-  | 'itunes';
+  'google' | 'amazon' | 'goodreads' | 'hardcover' | 'hardcoverEdition' | 'openlibrary' | 'ranobedb' | 'kobo' | 'lubimyczytac' | 'aladin' | 'itunes';
 
 // Calibre 9.x (opf3) writes provider identifiers as bare `prefix:value` text inside <dc:identifier>.
 // Only these known prefixes are recognized, as a lowest-priority fallback after opf:scheme and urn:.
@@ -159,7 +147,6 @@ const PREFIX_TO_PROVIDER: Record<string, ProviderKey> = {
   lubimyczytac: 'lubimyczytac',
   ranobedb: 'ranobedb',
   aladin: 'aladin',
-  yandexbooks: 'yandexbooks',
 };
 
 const PROVIDER_PREFIXES: Record<ProviderKey, readonly string[]> = {
@@ -173,7 +160,6 @@ const PROVIDER_PREFIXES: Record<ProviderKey, readonly string[]> = {
   kobo: ['urn:kobo:', 'kobo:'],
   lubimyczytac: ['urn:lubimyczytac:', 'lubimyczytac:'],
   aladin: ['urn:aladin:', 'aladin:'],
-  yandexbooks: ['urn:yandexbooks:', 'yandexbooks:'],
   itunes: ['urn:itunes:', 'itunes:'],
 };
 
@@ -188,7 +174,6 @@ const PROVIDER_ID_FIELD: Record<ProviderKey, ProviderIdField> = {
   kobo: 'koboId',
   lubimyczytac: 'lubimyczytacId',
   aladin: 'aladinId',
-  yandexbooks: 'yandexBooksId',
   itunes: 'itunesId',
 };
 
@@ -415,7 +400,6 @@ export function parseOpf(xml: string): ParsedOpf {
   let schemeKoboId: string | null = null;
   let schemeLubimyczytacId: string | null = null;
   let schemeAladinId: string | null = null;
-  let schemeYandexBooksId: string | null = null;
   let schemeItunesId: string | null = null;
 
   let urnGoogleBooksId: string | null = null;
@@ -428,7 +412,6 @@ export function parseOpf(xml: string): ParsedOpf {
   let urnKoboId: string | null = null;
   let urnLubimyczytacId: string | null = null;
   let urnAladinId: string | null = null;
-  let urnYandexBooksId: string | null = null;
   let urnItunesId: string | null = null;
 
   // Calibre prefix:value identifiers have the lowest priority, after scheme and urn.
@@ -461,7 +444,6 @@ export function parseOpf(xml: string): ParsedOpf {
     if (scheme === 'kobo') schemeKoboId ??= normalizeProviderId('kobo', value);
     if (scheme === 'lubimyczytac') schemeLubimyczytacId ??= normalizeProviderId('lubimyczytac', value);
     if (scheme === 'aladin') schemeAladinId ??= normalizeProviderId('aladin', value);
-    if (scheme === 'yandexbooks') schemeYandexBooksId ??= normalizeProviderId('yandexbooks', value);
     if (scheme === 'itunes') schemeItunesId ??= normalizeProviderId('itunes', value);
 
     // urn:-prefixed provider identifiers (legacy / backward-compat)
@@ -476,7 +458,6 @@ export function parseOpf(xml: string): ParsedOpf {
     if (lowerValue.startsWith('urn:kobo:')) urnKoboId ??= normalizeProviderId('kobo', value);
     if (lowerValue.startsWith('urn:lubimyczytac:')) urnLubimyczytacId ??= normalizeProviderId('lubimyczytac', value);
     if (lowerValue.startsWith('urn:aladin:')) urnAladinId ??= normalizeProviderId('aladin', value);
-    if (lowerValue.startsWith('urn:yandexbooks:')) urnYandexBooksId ??= normalizeProviderId('yandexbooks', value);
     if (lowerValue.startsWith('urn:itunes:')) urnItunesId ??= normalizeProviderId('itunes', value);
 
     // Calibre prefix:value only applies when there is no opf:scheme attribute and the value is not a urn.
@@ -503,7 +484,6 @@ export function parseOpf(xml: string): ParsedOpf {
   const koboId = schemeKoboId ?? urnKoboId ?? prefixIds.kobo ?? null;
   const lubimyczytacId = schemeLubimyczytacId ?? urnLubimyczytacId ?? prefixIds.lubimyczytac ?? null;
   const aladinId = schemeAladinId ?? urnAladinId ?? prefixIds.aladin ?? null;
-  const yandexBooksId = schemeYandexBooksId ?? urnYandexBooksId ?? prefixIds.yandexbooks ?? null;
   const itunesId = schemeItunesId ?? urnItunesId ?? prefixIds.itunes ?? null;
 
   isbn10 ??= propertyMeta('bookorbit:isbn10') ?? namedMeta('bookorbit:isbn10');
@@ -633,7 +613,6 @@ export function parseOpf(xml: string): ParsedOpf {
     koboId,
     lubimyczytacId,
     aladinId,
-    yandexBooksId,
     itunesId,
     customMetadata,
     coverHref,

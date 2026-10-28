@@ -57,4 +57,18 @@ describe('LegalNotices', () => {
     await wrapper.get('button').trigger('click')
     expect(useLegalNotices().open.value).toBe(true)
   })
+
+  it('uses the configured fork source while preserving original attribution', async () => {
+    vi.stubEnv('VITE_SOURCE_CODE_URL', 'https://github.com/akurach/bookorbit/tree/fixture')
+    try {
+      const wrapper = mount(LegalNotices)
+      useLegalNotices().openLegalNotices()
+      await nextTick()
+      const links = wrapper.findAll('a')
+      expect(links[0]!.attributes('href')).toBe('https://github.com/bookorbit/bookorbit')
+      expect(links[1]!.attributes('href')).toBe('https://github.com/akurach/bookorbit/tree/fixture')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })

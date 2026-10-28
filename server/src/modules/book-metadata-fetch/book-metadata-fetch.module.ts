@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
 
+import { AudiobookChaptersModule } from '../audiobook-chapters/audiobook-chapters.module';
 import { AuthModule } from '../auth/auth.module';
 import { BookModule } from '../book/book.module';
 import { BookCoverStoreModule } from '../book-cover-store/book-cover-store.module';
@@ -16,11 +17,13 @@ import { BookMetadataFetchController } from './book-metadata-fetch.controller';
 import { BookMetadataFetchEligibilityService } from './book-metadata-fetch-eligibility.service';
 import { BookMetadataFetchGateway } from './book-metadata-fetch.gateway';
 import { BookMetadataFetchOrchestratorService } from './book-metadata-fetch-orchestrator.service';
+import { BookMetadataFetchPreviewService } from './book-metadata-fetch-preview.service';
 import { BookMetadataFetchQueueRepository } from './book-metadata-fetch-queue.repository';
 import { BookMetadataFetchSessionService } from './book-metadata-fetch-session.service';
 
 @Module({
   imports: [
+    AudiobookChaptersModule,
     forwardRef(() => BookModule),
     BookCoverStoreModule,
     BookMetadataLockModule,
@@ -44,6 +47,7 @@ import { BookMetadataFetchSessionService } from './book-metadata-fetch-session.s
     BookMetadataFetchEligibilityService,
     BookMetadataFetchConfigService,
     BookMetadataFetchOrchestratorService,
+    BookMetadataFetchPreviewService,
     BookMetadataFetchGateway,
   ],
   exports: [BookMetadataFetchOrchestratorService],

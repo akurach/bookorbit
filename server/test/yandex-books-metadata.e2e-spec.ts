@@ -1,47 +1,22 @@
 import { randomUUID } from 'crypto';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 
-import { eq } from 'drizzle-orm';
-import { MetadataProviderKey } from '@bookorbit/types';
-
+import { and, eq } from 'drizzle-orm';
 import * as schema from '../src/db/schema';
 import { closeE2EContext, createE2EContext, type E2EContext } from './e2e/app-harness';
 
-const SCENARIO_TIMEOUT_MS = 60_000;
-const YANDEX_GRAPHQL_URL = 'https://api-gateway.bookmate.yandex.net/graphql';
+const KEY = 'yandexbooks';
+const ID = 'book-MWxAop5b';
 const COVER_URL = 'https://8.8.8.8/bookorbit-yandex-e2e-cover.png';
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWPgUbL4D8IMGAwAaEMIX38E8cgAAAAASUVORK5CYII=',
   'base64',
 );
 const nativeFetch = globalThis.fetch;
-
-type SearchEvent = Record<string, unknown>;
-
-function authHeader(token: string): Record<string, string> {
-  return { authorization: `Bearer ${token}` };
-}
-
-function parseSearchEvents(body: string): SearchEvent[] {
-  return body
-    .split('\n\n')
-    .map((frame) => frame.split('\n').find((line) => line.startsWith('data:')))
-    .filter((line): line is string => line !== undefined)
-    .map((line) => JSON.parse(line.slice('data:'.length).trim()) as SearchEvent);
-}
-
-async function setYandexEnabled(ctx: E2EContext, enabled: boolean): Promise<void> {
-  const response = await ctx.app.inject({
-    method: 'PUT',
-    url: '/api/v1/metadata-preferences/providers',
-    headers: authHeader(ctx.adminToken),
-    payload: { yandexBooks: { enabled } },
-  });
-
-  expect(response.statusCode).toBe(200);
-  expect(response.json()).toMatchObject({ yandexBooks: { enabled } });
-}
+const authHeader = (token: string) => ({ authorization: `Bearer ${token}` });
 
 async function seedBook(ctx: E2EContext): Promise<{ bookId: number; tagName: string }> {
   const suffix = randomUUID();
@@ -89,170 +64,142 @@ async function seedBook(ctx: E2EContext): Promise<{ bookId: number; tagName: str
   return { bookId: book.id, tagName };
 }
 
-describe('Yandex Books metadata provider (e2e)', { timeout: SCENARIO_TIMEOUT_MS }, () => {
-  let ctx!: E2EContext;
-  let origin!: string;
+describe('Yandex Books external metadata provider (e2e)', { timeout: 60_000 }, () => {
+  let ctx: E2EContext;
+  let server: Server;
+  let baseUrl: string;
+  let origin: string;
+  let providerId: number;
+  let unavailable = false;
+  const calls: string[] = [];
+  const record = (id: string) => ({
+    providerId: id,
+    title: 'Selected Yandex title',
+    authors: ['Yandex Author'],
+    description: 'Fixture description',
+    publisher: 'Yandex Publisher',
+    cover: COVER_URL,
+    url: `https://books.yandex.ru/books/${id}`,
+  });
+  const call = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
+    ctx.app.inject({ method, url: `/api/v1${url}`, headers: authHeader(ctx.adminToken), ...(payload ? { payload } : {}) });
 
   beforeAll(async () => {
+    server = createServer((req, res) => {
+      const path = new URL(req.url ?? '/', 'http://fixture').pathname;
+      calls.push(path);
+      expect(req.headers.authorization).toBeUndefined();
+      if (unavailable) {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
+      res.setHeader('content-type', 'application/json');
+      if (path === '/provider/info')
+        res.end(
+          JSON.stringify({
+            name: 'Yandex Books',
+            key: KEY,
+            version: '0.1.0',
+            lookup: true,
+            mediaTypes: ['book', 'audiobook', 'comic'],
+            searchParams: ['limit'],
+            supportedFields: ['title', 'description', 'publisher'],
+          }),
+        );
+      else if (path === '/search') res.end(JSON.stringify({ matches: [record(ID)] }));
+      else if (['/book/book-MWxAop5b', '/book/audiobook-VTVT8GzC', '/book/comicbook-yjrd9dHo'].includes(path))
+        res.end(JSON.stringify(record(path.slice('/book/'.length))));
+      else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
     ctx = await createE2EContext({ isolateAppData: true, realMetadata: true });
     await ctx.app.listen(0, '127.0.0.1');
     origin = await ctx.app.getUrl();
+    const created = await call('POST', '/metadata-http-providers', { baseUrl, allowPrivateAddress: true });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ key: KEY, enabled: false, hasAuthorization: false });
+    providerId = created.json().id;
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
+  afterEach(() => vi.unstubAllGlobals());
   afterAll(async () => {
     if (ctx) await closeE2EContext(ctx);
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('enables Yandex over HTTP, searches through the real provider, and applies the selected candidate without losing unrelated metadata', async () => {
+  it('searches, looks up all media IDs, and applies metadata and cover to the database', async () => {
     const { bookId, tagName } = await seedBook(ctx);
-    const fetchMock = vi.fn((input: string | URL | Request): Promise<Response> => {
-      const url = input instanceof Request ? input.url : input.toString();
-      if (url === YANDEX_GRAPHQL_URL) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: {
-                search: {
-                  page: [
-                    {
-                      __typename: 'TextBook',
-                      book: {
-                        uuid: 'YandexE2E42',
-                        title: 'Selected Yandex title',
-                        authors: [{ name: 'Yandex Author' }],
-                        annotation: 'Metadata returned by the deterministic Yandex fixture.',
-                        publisher: { name: 'Yandex Publisher' },
-                        language: 'ru',
-                        paper_pages: 384,
-                        original_year: 2024,
-                        topics: [{ name: 'Science fiction' }],
-                        cover: { url: COVER_URL },
-                      },
-                    },
-                  ],
-                },
-              },
-            }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-        );
-      }
-      if (url === COVER_URL) return Promise.resolve(new Response(PNG_BYTES, { status: 200, headers: { 'content-type': 'image/png' } }));
-      return Promise.reject(new Error(`Unexpected external request: ${url}`));
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await setYandexEnabled(ctx, true);
-
+    expect((await call('PATCH', `/metadata-http-providers/${providerId}`, { enabled: true })).statusCode).toBe(200);
     const search = await nativeFetch(
-      `${origin}/api/v1/metadata-fetch/stream?bookId=${bookId}&title=${encodeURIComponent('Selected Yandex title')}&providers=${MetadataProviderKey.YANDEX_BOOKS}&cache=refresh`,
-      {
-        headers: authHeader(ctx.adminToken),
-        signal: AbortSignal.timeout(30_000),
-      },
+      `${origin}/api/v1/metadata-fetch/stream?bookId=${bookId}&title=Selected%20Yandex%20title&providers=${KEY}&cache=refresh`,
+      { headers: authHeader(ctx.adminToken), signal: AbortSignal.timeout(30_000) },
     );
     expect(search.status).toBe(200);
-    expect(search.headers.get('content-type')).toContain('text/event-stream');
-
-    const events = parseSearchEvents(await search.text());
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(YANDEX_GRAPHQL_URL);
-    expect(events).toContainEqual(expect.objectContaining({ provider: MetadataProviderKey.YANDEX_BOOKS, providerId: 'YandexE2E42' }));
-
-    const [candidate] = events.filter((event) => event.providerId === 'YandexE2E42');
+    const events = (await search.text()).split('\n\n').flatMap((frame) =>
+      frame
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => JSON.parse(line.slice(5).trim())),
+    );
+    const candidate = events.find((event) => event.providerId === ID);
     expect(candidate).toMatchObject({
-      provider: MetadataProviderKey.YANDEX_BOOKS,
-      providerId: 'YandexE2E42',
+      provider: KEY,
+      providerId: ID,
       title: 'Selected Yandex title',
       authors: ['Yandex Author'],
       coverUrl: COVER_URL,
-      coverShape: 'portrait',
     });
-
-    const apply = await ctx.app.inject({
-      method: 'PATCH',
-      url: `/api/v1/books/${bookId}/metadata`,
-      headers: authHeader(ctx.adminToken),
-      payload: {
-        title: candidate.title,
-        authors: candidate.authors,
-        description: candidate.description,
-        publisher: candidate.publisher,
-        language: candidate.language,
-        pageCount: candidate.pageCount,
-        publishedYear: candidate.publishedYear,
-        genres: candidate.genres,
-        yandexBooksId: candidate.providerId,
-      },
+    for (const id of [ID, 'audiobook-VTVT8GzC', 'comicbook-yjrd9dHo']) {
+      const lookup = await call('GET', `/metadata-fetch/lookup?provider=${KEY}&id=${id}`);
+      expect(lookup.statusCode).toBe(200);
+      expect(lookup.json()).toMatchObject({ provider: KEY, providerId: id });
+      expect(calls).toContain(`/book/${id}`);
+    }
+    const applied = await call('PATCH', `/books/${bookId}/metadata`, {
+      title: candidate.title,
+      authors: candidate.authors,
+      description: candidate.description,
+      publisher: candidate.publisher,
+      externalProviderIds: { [KEY]: ID },
     });
-    expect(apply.statusCode).toBe(200);
-    expect(apply.json()).toMatchObject({
-      providerIds: { yandexBooks: 'YandexE2E42' },
-      authors: [{ name: 'Yandex Author' }],
-      genres: ['Science fiction'],
-      isbn13: '9780306406157',
-      tags: [tagName],
+    expect(applied.statusCode).toBe(200);
+    expect(applied.json()).toMatchObject({ providerIds: { [KEY]: ID }, isbn13: '9780306406157', tags: [tagName] });
+    const [storedId] = await ctx.db
+      .select()
+      .from(schema.bookProviderIds)
+      .where(and(eq(schema.bookProviderIds.bookId, bookId), eq(schema.bookProviderIds.provider, KEY)));
+    expect(storedId).toMatchObject({ externalId: ID });
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return url === COVER_URL
+        ? Promise.resolve(new Response(PNG_BYTES, { status: 200, headers: { 'content-type': 'image/png' } }))
+        : nativeFetch(input, init);
     });
-
-    const uploadCover = await ctx.app.inject({
-      method: 'POST',
-      url: `/api/v1/books/${bookId}/cover/from-url?medium=ebook`,
-      headers: authHeader(ctx.adminToken),
-      payload: { url: candidate.coverUrl },
-    });
-    expect(uploadCover.statusCode).toBe(204);
-
-    const [stored] = await ctx.db.select().from(schema.bookMetadata).where(eq(schema.bookMetadata.bookId, bookId));
-    expect(stored).toMatchObject({
-      title: 'Selected Yandex title',
-      yandexBooksId: 'YandexE2E42',
-      isbn13: '9780306406157',
-    });
-
-    const detail = await ctx.app.inject({ method: 'GET', url: `/api/v1/books/${bookId}`, headers: authHeader(ctx.adminToken) });
-    expect(detail.statusCode).toBe(200);
-    expect(detail.json()).toMatchObject({
-      providerIds: { yandexBooks: 'YandexE2E42' },
-      isbn13: '9780306406157',
-      authors: [{ name: 'Yandex Author' }],
-      genres: ['Science fiction'],
-      tags: [tagName],
-      covers: { ebook: { source: 'custom' } },
-    });
-    const coverFiles = await readdir(join(ctx.isolatedAppData!.path, 'covers', String(bookId), 'ebook'));
-    expect(coverFiles.some((file) => file.startsWith('cover_custom.'))).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const cover = await call('POST', `/books/${bookId}/cover/from-url?medium=ebook`, { url: candidate.coverUrl });
+    expect(cover.statusCode).toBe(204);
+    const detail = await call('GET', `/books/${bookId}`);
+    expect(detail.json()).toMatchObject({ providerIds: { [KEY]: ID }, covers: { ebook: { source: 'custom' } } });
+    const files = await readdir(join(ctx.isolatedAppData!.path, 'covers', String(bookId), 'ebook'));
+    expect(files.some((file) => file.startsWith('cover_custom.'))).toBe(true);
   });
 
-  it('does not issue an upstream request while Yandex is disabled or when the request contains only an ISBN', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await setYandexEnabled(ctx, false);
-    const disabled = await nativeFetch(
-      `${origin}/api/v1/metadata-fetch/stream?title=Disabled&providers=${MetadataProviderKey.YANDEX_BOOKS}&cache=refresh`,
-      {
-        headers: authHeader(ctx.adminToken),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    expect(disabled.status).toBe(200);
-    expect(parseSearchEvents(await disabled.text())).toEqual([]);
-
-    await setYandexEnabled(ctx, true);
-    const isbnOnly = await nativeFetch(
-      `${origin}/api/v1/metadata-fetch/stream?isbn=9780306406157&providers=${MetadataProviderKey.YANDEX_BOOKS}&cache=refresh`,
-      {
-        headers: authHeader(ctx.adminToken),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    expect(isbnOnly.status).toBe(200);
-    expect(parseSearchEvents(await isbnOnly.text())).toEqual([]);
-    expect(fetchMock).not.toHaveBeenCalled();
+  it('excludes a disabled provider and reports an unavailable provider as a failure', async () => {
+    expect((await call('PATCH', `/metadata-http-providers/${providerId}`, { enabled: false })).statusCode).toBe(200);
+    const providers = await call('GET', '/metadata-fetch/providers');
+    expect(providers.json().map((provider: { key: string }) => provider.key)).not.toContain(KEY);
+    const count = calls.length;
+    const lookup = await call('GET', `/metadata-fetch/lookup?provider=${KEY}&id=${ID}`);
+    expect(lookup.json()).toBeNull();
+    expect(calls).toHaveLength(count);
+    unavailable = true;
+    const tested = await call('POST', `/metadata-http-providers/${providerId}/test`, {});
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json()).toMatchObject({ ok: false, resultCount: null, error: expect.any(String) });
+    unavailable = false;
   });
 });

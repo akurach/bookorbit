@@ -7,7 +7,7 @@ import { buildContentFilterClauses } from '../../common/utils/content-filter-sql
 import type { RequestUser } from '../../common/types/request-user';
 import { DB } from '../../db';
 import * as schema from '../../db/schema';
-import { matchExternalCatalogBook } from './external-catalog-matching';
+import { externalCatalogProviderId, matchExternalCatalogBook } from './external-catalog-matching';
 import { assertPristineExternalPlaceholder } from './external-catalog-placeholder';
 
 type Db = NodePgDatabase<typeof schema>;
@@ -80,6 +80,7 @@ export class ExternalCatalogRepository {
       const source = await this.findSourceIn(tx, userId, item, true);
       if (!source || source.bookId !== previousBookId) throw new ConflictException('The source link changed. Reload the entries and try again.');
       const migratedAttempt = await assertPristineExternalPlaceholder(tx, userId, previousBookId, entryId, targetBookId, item, source);
+      await this.ensureProviderId(tx, targetBookId, item, true);
       const statusConflict = await this.upsertSourceAndStatus(tx, userId, targetBookId, item, source, statusPolicy);
       await tx
         .update(schema.yandexBooksEntries)
@@ -145,8 +146,32 @@ export class ExternalCatalogRepository {
       await this.upsertMetadata(tx, bookId, item);
       await this.upsertAuthors(tx, bookId, item.authors);
     } else await verifyExistingTarget(bookId);
+    await this.ensureProviderId(tx, bookId, item, existingBookId != null || existingSource?.bookId === bookId);
     const statusConflict = await this.upsertSourceAndStatus(tx, user.id, bookId, item, existingSource, statusPolicy);
     return { bookId, created, statusConflict };
+  }
+
+  private async ensureProviderId(tx: Transaction, bookId: number, item: ExternalCatalogItem, allowDifferent: boolean): Promise<void> {
+    // Preserve an explicitly selected multi-format mapping; never replace a different provider ID.
+    const [providerId] = await tx
+      .select()
+      .from(schema.bookProviderIds)
+      .where(and(eq(schema.bookProviderIds.bookId, bookId), eq(schema.bookProviderIds.provider, 'yandexbooks')))
+      .for('update');
+    if (!providerId) {
+      await tx
+        .insert(schema.bookProviderIds)
+        .values({ bookId, provider: 'yandexbooks', externalId: externalCatalogProviderId(item), sourceUrl: item.sourceUrl })
+        .onConflictDoNothing();
+      const [stored] = await tx
+        .select()
+        .from(schema.bookProviderIds)
+        .where(and(eq(schema.bookProviderIds.bookId, bookId), eq(schema.bookProviderIds.provider, 'yandexbooks')));
+      if (stored?.externalId !== externalCatalogProviderId(item))
+        throw new ConflictException('The Yandex Books provider ID changed. Reload and try again.');
+    } else if (providerId.externalId !== externalCatalogProviderId(item) && !allowDifferent) {
+      throw new ConflictException('The book has a different Yandex Books provider ID. Link it explicitly.');
+    }
   }
 
   private async externalFolderPath(tx: Transaction, libraryFolderId: number, item: ExternalCatalogItem): Promise<string> {
@@ -187,7 +212,6 @@ export class ExternalCatalogRepository {
         language: item.language,
         pageCount: item.pageCount,
         isbn13: item.isbn?.replace(/[^0-9Xx]/g, '').slice(-13) || null,
-        yandexBooksId: item.mediaKind === 'ebook' ? item.externalId : null,
       })
       .onConflictDoUpdate({
         target: schema.bookMetadata.bookId,
@@ -197,7 +221,6 @@ export class ExternalCatalogRepository {
           language: item.language,
           pageCount: item.pageCount,
           isbn13: item.isbn?.replace(/[^0-9Xx]/g, '').slice(-13) || null,
-          ...(item.mediaKind === 'ebook' ? { yandexBooksId: item.externalId } : {}),
           updatedAt: new Date(),
         },
       });

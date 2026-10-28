@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DjvuDocumentService } from '../djvu/djvu-document.service';
 
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
 import { extractAudioCover } from './extractors/audio.extractor';
@@ -6,12 +7,13 @@ import { AudioFormatExtractor } from './extractors/audio-format.extractor';
 import { ComicFormatExtractor } from './extractors/comic-format.extractor';
 import { EpubFormatExtractor } from './extractors/epub-format.extractor';
 import { Fb2FormatExtractor } from './extractors/fb2-format.extractor';
-import type { FormatExtractor, ParsedBookData } from './extractors/format-extractor.interface';
+import type { FormatExtractOptions, FormatExtractor, ParsedBookData } from './extractors/format-extractor.interface';
 import { MobiFormatExtractor } from './extractors/mobi-format.extractor';
 import { OpfFormatExtractor } from './extractors/opf-format.extractor';
 import { PdfFormatExtractor } from './extractors/pdf-format.extractor';
 import { extractCover } from './lib/cover';
 import { extractEpubFixedLayout } from './lib/epub';
+import { parseBookFilename } from './lib/filename-parser';
 import type { PdfParseWarning } from './lib/pdf-parser';
 
 export const METADATA_AUDIO_FORMATS = ['m4b', 'mp3', 'm4a', 'opus', 'ogg', 'flac'] as const;
@@ -26,7 +28,7 @@ export class MetadataExtractionService {
   private readonly logger = new Logger(MetadataExtractionService.name);
   private readonly extractors: ReadonlyMap<string, FormatExtractor>;
 
-  constructor() {
+  constructor(private readonly djvu: DjvuDocumentService) {
     const audio = new AudioFormatExtractor();
     const mobi = new MobiFormatExtractor();
     const epub = new EpubFormatExtractor();
@@ -51,11 +53,32 @@ export class MetadataExtractionService {
   }
 
   supports(format: string): boolean {
-    return this.extractors.has(format);
+    return format === 'djvu' || this.extractors.has(format);
   }
 
-  async extract(absolutePath: string, format: string): Promise<ParsedBookData | null> {
-    return (await this.extractors.get(format)?.extract(absolutePath)) ?? null;
+  async extract(absolutePath: string, format: string, options?: FormatExtractOptions): Promise<ParsedBookData | null> {
+    if (format === 'djvu') {
+      if (options?.cover === false) return { ...(await this.extractDjvuDetails(absolutePath)), authors: [], genres: [], cover: null };
+      const { pageCount, cover } = await this.djvu.extractMetadata(absolutePath);
+      const filename = parseBookFilename(absolutePath);
+      return {
+        title: filename.title,
+        authors: [],
+        publishedYear: filename.publishedYear,
+        genres: [],
+        pageCount,
+        cover,
+      };
+    }
+    const extractor = this.extractors.get(format);
+    if (!extractor) return null;
+    return (await (options ? extractor.extract(absolutePath, options) : extractor.extract(absolutePath))) ?? null;
+  }
+
+  /** What a DjVu file supplies, read without rendering its cover. */
+  async extractDjvuDetails(absolutePath: string): Promise<{ title: string; publishedYear: number | null; pageCount: number }> {
+    const filename = parseBookFilename(absolutePath);
+    return { title: filename.title, publishedYear: filename.publishedYear, pageCount: await this.djvu.readPageCount(absolutePath) };
   }
 
   /**
@@ -79,6 +102,7 @@ export class MetadataExtractionService {
   /** Reads only a file's embedded cover. KEPUB is an EPUB container, and audio art comes from ffmpeg. */
   async extractEmbeddedCover(absolutePath: string, format: string): Promise<Buffer | null> {
     const normalized = format.toLowerCase();
+    if (normalized === 'djvu') return this.djvu.extractCover(absolutePath);
     if ((METADATA_AUDIO_FORMATS as readonly string[]).includes(normalized)) return extractAudioCover(absolutePath);
     return extractCover(absolutePath, normalized === 'kepub' ? 'epub' : normalized);
   }

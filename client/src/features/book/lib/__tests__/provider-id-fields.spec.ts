@@ -15,7 +15,6 @@ describe('provider ID fields', () => {
       'hardcoverId',
       'hardcoverEditionId',
       'openLibraryId',
-      'yandexBooksId',
       'itunesId',
       'audibleId',
       'librofmId',
@@ -33,17 +32,15 @@ describe('provider ID fields', () => {
       provider(MetadataProviderKey.LIBROFM),
       provider(MetadataProviderKey.KOBO),
       provider(MetadataProviderKey.COMICVINE),
-      provider(MetadataProviderKey.YANDEX_BOOKS),
     ])
 
-    expect(fields.map((field) => field.field)).toEqual(['hardcoverId', 'hardcoverEditionId', 'yandexBooksId', 'librofmId', 'koboId', 'comicvineId'])
+    expect(fields.map((field) => field.field)).toEqual(['hardcoverId', 'hardcoverEditionId', 'librofmId', 'koboId', 'comicvineId'])
   })
 
   it('reports provider ID field availability by mapped provider key', () => {
     const providers = [provider(MetadataProviderKey.GOOGLE)]
 
     expect(isProviderIdFieldAvailable('googleBooksId', providers)).toBe(true)
-    expect(isProviderIdFieldAvailable('yandexBooksId', providers)).toBe(false)
     expect(isProviderIdFieldAvailable('hardcoverEditionId', providers)).toBe(false)
     expect(isProviderIdFieldAvailable('koboId', providers)).toBe(false)
     expect(isProviderIdFieldAvailable('futureProviderId' as ProviderIdFormField, providers)).toBe(true)

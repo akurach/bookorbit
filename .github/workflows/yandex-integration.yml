@@ -84,9 +84,30 @@ jobs:
       artifact-name: "yandex-${{ matrix.suite.id }}-report"
       job-timeout-minutes: ${{ matrix.suite.timeout }}
 
+  build:
+    name: Build home upgrade artifact
+    needs: setup
+    if: needs.setup.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_SOURCE_CODE_URL: https://github.com/akurach/bookorbit/tree/${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Build server and web client
+        run: pnpm build:server && pnpm --dir client build-only
+      - name: Package application without dependencies or credentials
+        run: node scripts/build-home-upgrade-artifact.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: home-library-3.6-application
+          path: test-results/home-upgrade/*.tar.gz
+          retention-days: 7
+
   gate:
     name: Yandex integration gate
-    needs: [setup, quality, e2e]
+    needs: [setup, quality, e2e, build]
     if: always() && github.repository == 'akurach/bookorbit'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -97,9 +118,11 @@ jobs:
           MATRIX: ${{ needs.setup.outputs.matrix }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
         run: |
           test "$SETUP_RESULT" = success
           if [ "$MATRIX" != '[]' ]; then
             test "$QUALITY_RESULT" = success
             test "$E2E_RESULT" = success
+            test "$BUILD_RESULT" = success
           fi

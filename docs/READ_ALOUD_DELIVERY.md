@@ -29,6 +29,12 @@ Inspection is lazy and keyed to the full source digest and detector version. Fai
 
 Derivatives and KEPUB conversions have bounded preparation queues and disk retention. Active leases protect files used by streams or position conversion. Eviction does not erase delivery provenance. Equivalent regeneration must match the recorded full digest; unavailable historical precision preserves canonical state rather than interpreting old spans against a different file. Fingerprint retry markers are durable and replay in bounded batches without changing manual hash links or resolving ambiguous identities arbitrarily.
 
+KOReader annotation and bookmark exchange acknowledgements are scoped to the device and rendition hash. Opening an original and a text-only copy on one device cannot make either sidecar's missing entries delete the other's annotations. Historical hashes whose source bytes are unavailable cannot exchange or acknowledge precise annotations and bookmarks.
+
+Closed-book highlight writes remain pending until verified by the live reader. Missing unverified entries are redelivered with their complete ranges and cannot imply a server deletion. When several existing local files share one rendition hash, the sweep selects the most recently opened copy and withholds missing-key deletion detection for both highlights and bookmarks. Independent deletions between identical local copies are unsupported; deleting in BookOrbit remains authoritative.
+
+The web reader requests positions for its selected file, verifies highlight quotes, and projects bookmark points using recorded source-file provenance and equivalent chapter text. These projections do not replace canonical positions. Existing API clients retain the default response behavior; selected-file projection uses an optional query parameter. A failed device apply keeps the annotation eligible for retry without invalidating another device's canonical anchor.
+
 ## Guided Kobo replacement
 
 Search for one book and select one device. Prepare the replacement before removing the device copy. Review its format and measured size, remove the book only from the selected device, offer the replacement, and sync/download. Open it on the device before confirming installation.
@@ -62,6 +68,8 @@ The `read-aloud-delivery` E2E suite covers bytes, ranges, authorization, indepen
 ## KOReader server defaults
 
 Set the credential default in Settings > KOReader > Sync Settings > KOReader EPUB delivery. A device can override it, or use the credential default. New credentials created in the supported web interface start with text-only delivery. Existing credentials inherit text-only until configured; the plugin imports an existing local choice once for that device if the server default has not been configured. Import never overwrites a saved device choice or an explicit credential default.
+
+Downloads keep the device's file naming pattern for either variant. Only copies that would otherwise share a path are renamed: the text-only copy of a narrated EPUB adds ` - Text Only`, and each same-format file after a book's first adds its file id in brackets.
 
 Plugin 1.7.0 reads the current server preference before a fresh acquisition. Download > Settings > Read-aloud EPUB delivery edits the same server device setting. Single-download options include Use BookOrbit default and a choice of either EPUB variant. Changes apply to future acquisitions. Issued selections and interrupted bulk checkpoints retain their captured variant, including when a web default changes before resume.
 

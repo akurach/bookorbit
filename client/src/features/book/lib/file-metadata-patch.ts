@@ -20,7 +20,6 @@ const FILE_METADATA_PATCH_FIELDS = [
   'hardcoverId',
   'hardcoverEditionId',
   'openLibraryId',
-  'yandexBooksId',
   'itunesId',
   'audibleId',
   'librofmId',

@@ -3,6 +3,7 @@ import { SelfWriteRegistryModule } from '../../common/self-write-registry.module
 
 import { AchievementModule } from '../achievement/achievement.module';
 import { AppSettingsModule } from '../app-settings/app-settings.module';
+import { AudiobookChaptersModule } from '../audiobook-chapters/audiobook-chapters.module';
 import { EmbeddingModule } from '../embedding/embedding.module';
 import { FileWriteModule } from '../file-write/file-write.module';
 import { LibraryModule } from '../library/library.module';
@@ -32,10 +33,13 @@ import { BookAuthorSortKeyBackfillService } from './book-author-sort-key-backfil
 import { ReadingAttemptController } from './reading-attempt.controller';
 import { ExternalCatalogService } from './external-catalog.service';
 import { ExternalCatalogRepository } from './external-catalog.repository';
+import { ReadingProgressController } from './reading-progress.controller';
+import { ReadingProgressService } from './reading-progress.service';
 
 @Module({
   imports: [
     forwardRef(() => LibraryModule),
+    AudiobookChaptersModule,
     BookMetadataLockModule,
     BookCoverStoreModule,
     CustomMetadataModule,
@@ -52,7 +56,7 @@ import { ExternalCatalogRepository } from './external-catalog.repository';
     AchievementModule,
     PositionConverterModule,
   ],
-  controllers: [BookController, ReadingAttemptController],
+  controllers: [BookController, ReadingAttemptController, ReadingProgressController],
   providers: [
     BookService,
     BookRepository,
@@ -68,15 +72,16 @@ import { ExternalCatalogRepository } from './external-catalog.repository';
     DeliveryHashRegistrationService,
     ExternalCatalogService,
     ExternalCatalogRepository,
+    ReadingProgressService,
   ],
   exports: [
+    ExternalCatalogService,
     BookService,
     BookReadService,
     BookQueryBuilder,
     AudiolessEpubService,
     DeliveryArtifactService,
     DeliverySelectionService,
-    ExternalCatalogService,
   ],
 })
 export class BookModule {}

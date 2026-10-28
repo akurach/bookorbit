@@ -37,10 +37,10 @@ describe('Read-aloud delivery contracts (e2e)', { timeout: 180_000 }, () => {
       headers: authHeader(owner.accessToken),
       ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}),
     });
-  async function detail(variant: string) {
+  async function detail(variant?: string) {
     const response = await ctx.app.inject({
       method: 'GET',
-      url: `/api/v1/koreader/plugin/catalog/books/${book.bookId}?variant=${variant}`,
+      url: `/api/v1/koreader/plugin/catalog/books/${book.bookId}${variant ? `?variant=${variant}` : ''}`,
       headers: koHeaders(),
     });
     expect(response.statusCode).toBe(200);
@@ -258,7 +258,10 @@ describe('Read-aloud delivery contracts (e2e)', { timeout: 180_000 }, () => {
     const text = await detail('audioless_epub');
     expect(original.sizeBytes).toBe(sourceBytes.length);
     expect(text.sizeBytes).toBeNull();
-    expect(original.devicePath).not.toBe(text.devicePath);
+    const configured = (await detail()).devicePath;
+    expect(configured).toMatch(/\.epub$/);
+    expect(original.devicePath).toBe(configured);
+    expect(text.devicePath).toBe(configured.replace(/\.epub$/, ' - Text Only.epub'));
     const response = await acquire(original.downloadUrl);
     expect(response.statusCode).toBe(200);
     expect(response.rawPayload).toEqual(sourceBytes);
@@ -413,6 +416,47 @@ describe('Read-aloud delivery contracts (e2e)', { timeout: 180_000 }, () => {
     expect((await action('cancel')).json().state).toBe('user_confirmed');
   });
 
+  it('delivers a book whose replacement was prepared before any copy, and an unfetched cancel hands back the earlier copy', async () => {
+    const device = (await request('POST', '/api/v1/kobo/devices', { name: 'Replacement before delivery' })).json();
+    await request('PATCH', '/api/v1/kobo/settings', { readAloudDelivery: 'original' });
+    const base = `/api/v1/kobo/devices/${device.id}`;
+    const download = () => ctx.app.inject({ method: 'GET', url: `/api/v1/kobo/${device.token}/v1/books/${book.bookId}/download` });
+
+    const early = (await request('POST', `${base}/books/${book.bookId}/replacement`, { variant: 'audioless_epub' })).json();
+    expect(early).toMatchObject({ state: 'prepared', previousId: null });
+    const first = await download();
+    expect(first.statusCode).toBe(200);
+    expect(first.rawPayload).toEqual(sourceBytes);
+    const delivered = (await request('GET', `${base}/books/${book.bookId}/delivery`)).json();
+    expect(delivered.id).not.toBe(early.id);
+    expect(delivered.options.replacement).toBe(false);
+    await waitForCondition(async () => {
+      const row = await ctx.db.query.koboDeviceDeliveries.findFirst({ where: eq(schema.koboDeviceDeliveries.id, delivered.id) });
+      expect(row?.state).toBe('transfer_observed');
+    });
+
+    const pending = (await request('POST', `${base}/books/${book.bookId}/replacement`, { variant: 'audioless_epub' })).json();
+    expect((await request('POST', `${base}/replacements/${pending.id}/offer`)).json().state).toBe('offered');
+    expect((await request('POST', `${base}/replacements/${pending.id}/cancel`)).json()).toMatchObject({ state: 'cancelled', current: false });
+    expect((await request('GET', `${base}/books/${book.bookId}/delivery`)).json()).toMatchObject({ id: delivered.id, state: 'transfer_observed' });
+    expect((await download()).rawPayload).toEqual(sourceBytes);
+  });
+
+  it('keeps the current delivery instead of offering a replacement with the bytes the device already has', async () => {
+    const device = (await request('POST', '/api/v1/kobo/devices', { name: 'Identical replacement' })).json();
+    await request('PATCH', '/api/v1/kobo/settings', { readAloudDelivery: 'audioless_epub' });
+    const base = `/api/v1/kobo/devices/${device.id}`;
+    expect((await ctx.app.inject({ method: 'GET', url: `/api/v1/kobo/${device.token}/v1/books/${book.bookId}/download` })).statusCode).toBe(200);
+    const delivered = (await request('GET', `${base}/books/${book.bookId}/delivery`)).json();
+
+    const prepared = await request('POST', `${base}/books/${book.bookId}/replacement`, { variant: 'audioless_epub' });
+
+    expect(prepared.statusCode).toBe(201);
+    expect(prepared.json()).toMatchObject({ id: delivered.id, options: { replacement: false } });
+    const rows = await ctx.db.query.koboDeviceDeliveries.findMany({ where: eq(schema.koboDeviceDeliveries.deviceId, device.id) });
+    expect(rows).toHaveLength(1);
+  });
+
   describe('Storyteller progress-reset regressions over live HTTP', () => {
     let origin: string;
     const cfi = 'epubcfi(/6/2!/4/2/2/1:3)';
@@ -509,7 +553,8 @@ describe('Read-aloud delivery contracts (e2e)', { timeout: 180_000 }, () => {
           where: and(eq(schema.koboDeviceReadingStates.deviceId, device.id), eq(schema.koboDeviceReadingStates.bookId, book.bookId)),
         });
         expect(raw?.currentBookmark).toMatchObject({ ProgressPercent: 0 });
-        expect(raw?.deliveryId).not.toBe(replacement.id);
+        if (stage === 'user_confirmed') expect(raw?.deliveryId).toBe(replacement.id);
+        else expect(raw?.deliveryId).not.toBe(replacement.id);
         const pulled = await (await http('GET', devicePath(device, `library/${book.bookId}/state`), undefined, false)).json();
         expect(pulled[0].CurrentBookmark.ProgressPercent).toBe(61);
         expect(pulled[0].StatusInfo.Status).toBe('Reading');

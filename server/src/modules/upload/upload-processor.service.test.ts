@@ -690,12 +690,13 @@ describe('UploadProcessorService', () => {
   });
 
   describe('deleteUnitBookRecords', () => {
-    it('clears the file rows before the books that own them', async () => {
+    it("clears the file rows, then the rolled-back books' reads, before the books that own them", async () => {
       await service.deleteUnitBookRecords({ bookIds: [42], createdBookIds: [42], attachedFileIds: [777], replacedPrimaries: [] });
 
       expect(dialect.sqlToQuery(tx.execute.mock.calls[0]![0]).sql).toContain('delete from "book_files"');
       expect(dialect.sqlToQuery(tx.execute.mock.calls[1]![0]).sql).toContain('delete from "book_files"');
-      expect(dialect.sqlToQuery(tx.execute.mock.calls[2]![0]).sql).toContain('delete from "books"');
+      expect(dialect.sqlToQuery(tx.execute.mock.calls[2]![0]).sql).toContain('delete from "reading_attempts"');
+      expect(dialect.sqlToQuery(tx.execute.mock.calls[3]![0]).sql).toContain('delete from "books"');
     });
 
     const dialect = new PgDialect();
@@ -779,5 +780,26 @@ describe('UploadProcessorService', () => {
 
     expect(coverReconciler.enqueue).toHaveBeenCalledWith([7], { filesChanged: true });
     expect(coverReconciler.enqueue.mock.invocationCallOrder[0]).toBeGreaterThan(metadataService.extractAndSave.mock.invocationCallOrder[0]!);
+  });
+
+  it.each([
+    [true, 0],
+    [false, 1],
+  ])('lets the library regex rules own extraction when they apply (%s)', async (handled, plainCalls) => {
+    const scanner = { extractMetadataWithLibraryRules: vi.fn().mockResolvedValue(handled) };
+    const withRules = new UploadProcessorService(
+      db as any,
+      metadataService as any,
+      coverStore as any,
+      orchestrator as any,
+      undefined,
+      scanner as any,
+    );
+    metadataService.extractAndSave.mockResolvedValue(undefined);
+
+    await withRules.extractMetadata(7, '/tmp/book.epub', 'epub');
+
+    expect(scanner.extractMetadataWithLibraryRules).toHaveBeenCalledWith(7);
+    expect(metadataService.extractAndSave).toHaveBeenCalledTimes(plainCalls);
   });
 });

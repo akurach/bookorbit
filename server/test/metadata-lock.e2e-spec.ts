@@ -1,3 +1,6 @@
+import { ScannerService } from '../src/modules/scanner/scanner.service';
+import { eq } from 'drizzle-orm';
+import { bookMetadata, bookAuthors, bookGenres } from '../src/db/schema';
 import { randomUUID } from 'crypto';
 import { readFile, rename } from 'fs/promises';
 import { join } from 'path';
@@ -22,6 +25,7 @@ import {
   triggerAndWaitForLibraryScan,
   uploadBookCover,
   waitForCondition,
+  waitForScanCompletion,
   waitForMetadataFetchIdle,
   type MetadataLockE2EContext,
 } from './e2e/metadata-lock/metadata-lock-harness';
@@ -46,6 +50,94 @@ describe('metadata-lock e2e', { timeout: 30_000 }, () => {
 
   afterAll(async () => {
     await closeMetadataLockE2EContext(ctx);
+  });
+
+  it.each(['book_per_file', 'book_per_folder'] as const)(
+    'merges relative regex metadata and preserves unchanged and locked fields (%s)',
+    async (mode) => {
+      const library = await createLibraryWithFolder(ctx, { mode });
+      const fullScan = async () => {
+        const { jobId } = await ctx.app.get(ScannerService).startScan(library.libraryId, 'manual', true);
+        await waitForScanCompletion(ctx.db, jobId);
+      };
+      const relPath = 'My.Series/08 - File.Name.epub';
+      await createEpubFixture(library.folderPath, relPath, { title: 'Embedded title' });
+      const config = { rules: [{ pattern: '^(?<series>[^/]+)/', flags: '' }] };
+      const configure = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/libraries/${library.libraryId}`,
+        headers: authHeader(ctx.adminToken),
+        payload: { icon: 'BookOpen', regexMetadata: config, metadataPrecedence: ['regex', 'embedded', 'opfFile'] },
+      });
+      expect(configure.statusCode).toBe(200);
+      expect(configure.json().regexMetadata).toEqual(config);
+      const preview = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/libraries/regex-metadata/preview',
+        headers: authHeader(ctx.adminToken),
+        payload: { libraryId: library.libraryId, config, relativePath: relPath },
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json()).toMatchObject({ inputPath: 'My.Series/08 - File.Name', metadata: { seriesName: 'My.Series' } });
+      await fullScan();
+      const located = await locateBookFileByRelPath(ctx, library.libraryId, relPath);
+      const read = async () => (await ctx.db.select().from(bookMetadata).where(eq(bookMetadata.bookId, located.bookId)))[0];
+      expect(await read()).toMatchObject({ title: 'Embedded title', seriesName: 'My.Series' });
+      const originalAuthors = await ctx.db.select().from(bookAuthors).where(eq(bookAuthors.bookId, located.bookId));
+      const changed = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/libraries/${library.libraryId}`,
+        headers: authHeader(ctx.adminToken),
+        payload: { regexMetadata: { rules: [{ pattern: '^(?<series>[^/]+)/(?<seriesIndex>[^ ]+) - (?<title>.+)$', flags: '' }] } },
+      });
+      expect(changed.statusCode).toBe(200);
+      await fullScan();
+      expect(await read()).toMatchObject({ title: 'Embedded title', seriesIndex: null });
+      expect((await patchLocks(located.bookId, ['title'])).statusCode).toBe(200);
+      await pause(1100);
+      await createEpubFixture(library.folderPath, relPath, { title: 'Changed embedded title with a different size' });
+      await fullScan();
+      expect(await read()).toMatchObject({ title: 'Embedded title', seriesName: 'My.Series', seriesIndex: '08' });
+      expect(await ctx.db.select().from(bookAuthors).where(eq(bookAuthors.bookId, located.bookId))).toEqual(originalAuthors);
+    },
+  );
+
+  it.each(['book_per_file', 'book_per_folder'] as const)('preserves unlocked relations on a partial regex rescan (%s)', async (mode) => {
+    const library = await createLibraryWithFolder(ctx, { mode });
+    const fullScan = async () => {
+      const { jobId } = await ctx.app.get(ScannerService).startScan(library.libraryId, 'manual', true);
+      await waitForScanCompletion(ctx.db, jobId);
+    };
+    const relPath = 'Path Series/book.epub';
+    await createEpubWithCoverFixture(library.folderPath, relPath, { title: 'Original title' });
+    await fullScan();
+    const { bookId } = await locateBookFileByRelPath(ctx, library.libraryId, relPath);
+    expect((await patchMetadata(bookId, { authors: ['Existing Author'], genres: ['Existing Genre'] })).statusCode).toBe(200);
+    expect((await patchLocks(bookId, [])).statusCode).toBe(200);
+    const originalAuthors = await ctx.db.select().from(bookAuthors).where(eq(bookAuthors.bookId, bookId));
+    const originalGenres = await ctx.db.select().from(bookGenres).where(eq(bookGenres.bookId, bookId));
+    expect(originalAuthors).toHaveLength(1);
+    expect(originalGenres).toHaveLength(1);
+    const configure = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/libraries/${library.libraryId}`,
+      headers: authHeader(ctx.adminToken),
+      payload: {
+        icon: 'BookOpen',
+        regexMetadata: { rules: [{ pattern: '^(?<series>[^/]+)/', flags: '' }] },
+        metadataPrecedence: ['regex', 'embedded', 'opfFile'],
+      },
+    });
+    expect(configure.statusCode).toBe(200);
+    await pause(1100);
+    await createEpubWithCoverFixture(library.folderPath, relPath, { title: 'Changed embedded title with a different size' });
+    await fullScan();
+
+    expect((await locateBookFileByRelPath(ctx, library.libraryId, relPath)).bookId).toBe(bookId);
+    const [metadata] = await ctx.db.select().from(bookMetadata).where(eq(bookMetadata.bookId, bookId));
+    expect(metadata).toMatchObject({ title: 'Changed embedded title with a different size', seriesName: 'Path Series', lockedFields: [] });
+    expect(await ctx.db.select().from(bookAuthors).where(eq(bookAuthors.bookId, bookId))).toEqual(originalAuthors);
+    expect(await ctx.db.select().from(bookGenres).where(eq(bookGenres.bookId, bookId))).toEqual(originalGenres);
   });
 
   it('normalizes and persists lock updates and rejects duplicate lock fields', async () => {
@@ -231,7 +323,8 @@ describe('metadata-lock e2e', { timeout: 30_000 }, () => {
       openLibraryId: null,
       durationSeconds: expected.goodreads.durationSeconds,
       abridged: expected.goodreads.abridged,
-      chapters: expected.goodreads.chapters,
+      chapters: expected.goodreads.chapters?.map(({ title, startMs }) => ({ title, startMs })),
+      chaptersSource: 'provider',
       coverSource: null,
     });
     expect(state.narrators).toEqual(['Locked Narrator']);
@@ -242,6 +335,29 @@ describe('metadata-lock e2e', { timeout: 30_000 }, () => {
     });
     expect(state.metadata?.lastMetadataFetchAt).not.toBeNull();
     await expect(findCoverFilePath(ctx, scanned.bookId)).resolves.toBeNull();
+  });
+
+  it('keeps locked chapters through a provider refresh', async () => {
+    const scanned = await scanSingleEpub('refresh-locked-chapters', { title: 'Locked Chapters Base' });
+
+    const seed = await patchMetadata(scanned.bookId, { audioMetadata: { chapters: [{ title: 'Curated Chapter', startMs: 0 }] } });
+    expect(seed.statusCode).toBe(200);
+    expect((await patchLocks(scanned.bookId, ['chapters'])).statusCode).toBe(200);
+
+    const refresh = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${scanned.bookId}/refresh-metadata`,
+      headers: authHeader(ctx.adminToken),
+    });
+    expect(refresh.statusCode).toBe(201);
+
+    const state = await readBookMutationState(ctx, scanned.bookId);
+    expect(state.metadata).toMatchObject({
+      chapters: [{ title: 'Curated Chapter', startMs: 0 }],
+      chaptersSource: 'manual',
+      lockedFields: ['chapters'],
+    });
+    expect(state.metadata?.lastMetadataFetchAt).not.toBeNull();
   });
 
   it('keeps locked fields untouched during bulk metadata fetch while persisting unlocked fields', async () => {

@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  CircleAlert,
   CircleCheck,
   CircleMinus,
   Download,
@@ -48,6 +49,7 @@ import RequestDrawerToolbar from './RequestDrawerToolbar.vue'
 import RequestEmptyState from './RequestEmptyState.vue'
 import EntityNotFound from '@/components/EntityNotFound.vue'
 import { formatKey, formatKeys, languageKey } from '../releaseFacets'
+import { requestBookCoverSources } from '../requestBookCover'
 import { requestFailureText } from '../requestOutcome'
 import { protocolChipClass, sourceChipClass } from '../sourceColors'
 import { useBookRequestActions } from '../composables/useBookRequests'
@@ -178,7 +180,20 @@ const {
   resetSearchEditorState,
 } = useReleaseSearchEditor({ request, criteria, attempts, requestId, fetchReleases, beforeSearch: startFreshSearch })
 
-const { manualOpen, grabbing, openManual, closeManual, forgetRefusals, handleGrab, handleManualGrab, isRefused, refusalText } = useReleaseGrab({
+const {
+  manualOpen,
+  grabbing,
+  holdForReview,
+  clientProblem,
+  openManual,
+  closeManual,
+  forgetRefusals,
+  handleGrab,
+  handleManualGrab,
+  retryClient,
+  isRefused,
+  refusalText,
+} = useReleaseGrab({
   request,
   requestId,
   grab: actions.grab,
@@ -195,10 +210,25 @@ const { manualOpen, grabbing, openManual, closeManual, forgetRefusals, handleGra
  * request, so `actions` has nothing to be busy about yet.
  */
 const busy = computed(() => grabbing.value || actions.isPending(request.value?.id))
+const clientProblemTitle = computed(() => {
+  const problem = clientProblem.value
+  if (!problem) return ''
+  const kind = problem.code === 'GRAB_CLIENT_UNAVAILABLE' ? 'unavailable' : 'refused'
+  return problem.client
+    ? t(`bookRequests.releases.clientProblem.${kind}`, { client: problem.client })
+    : t(`bookRequests.releases.clientProblem.${kind}Unnamed`)
+})
+const clientProblemHint = computed(() => {
+  const problem = clientProblem.value
+  if (!problem) return ''
+  if (problem.code === 'GRAB_CLIENT_UNAVAILABLE') return t('bookRequests.releases.clientProblem.unavailableHint')
+  return problem.reason ?? t('bookRequests.releases.clientProblem.refusedHint')
+})
 /** A retry is the same picker; only the framing changes, so the approver knows why it reopened. */
 const isRetry = computed(() => request.value?.status === 'failed')
 const failureText = computed(() => (request.value ? requestFailureText(request.value, (key, named) => t(key, named)) : null))
 const authorLine = computed(() => request.value?.authors.join(', ') ?? '')
+const bookCoverSources = computed(() => (request.value ? requestBookCoverSources(request.value) : []))
 const localOnlyCriteriaFacts = computed(() => (criteria.value ? localOnlyFacts(criteria.value) : []))
 /**
  * Adding a source or switching one back on happens under Settings > System > Requests, which is
@@ -730,6 +760,10 @@ function startFreshSearch(): void {
   forgetRefusals()
 }
 
+function handleRetryClient() {
+  void retryClient()
+}
+
 function handleRefresh() {
   startFreshSearch()
   if (!Number.isInteger(requestId.value)) return
@@ -789,7 +823,13 @@ function showEverySource(): void {
       <template v-else-if="request">
         <!-- The stage is named in the toolbar, so what is left here is the book being grabbed for. -->
         <header class="flex items-center gap-3.5">
-          <RequestCover :src="request.coverUrl" :media-kind="request.mediaKind" class="h-[72px] w-12 shadow-sm" :icon-size="20" />
+          <RequestCover
+            :src="request.coverUrl"
+            :fallback-sources="bookCoverSources"
+            :media-kind="request.mediaKind"
+            class="h-[72px] w-12 shadow-sm"
+            :icon-size="20"
+          />
 
           <div class="min-w-0 flex-1">
             <h2 class="truncate text-base font-semibold tracking-tight text-foreground">{{ request.title }}</h2>
@@ -1129,6 +1169,26 @@ function showEverySource(): void {
           {{ t('bookRequests.releases.cached') }}
         </p>
 
+        <!--
+          One notice for the client rather than a chip on every row it disables: the client is not a
+          property of any release, and the way out is the same whichever row was sent.
+        -->
+        <div
+          v-if="clientProblem && !finished"
+          role="alert"
+          class="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+        >
+          <CircleAlert :size="16" class="mt-0.5 shrink-0 text-destructive" aria-hidden="true" />
+          <div class="min-w-0 flex-1 basis-56">
+            <p class="font-medium text-foreground">{{ clientProblemTitle }}</p>
+            <p class="mt-0.5 text-xs break-words text-muted-foreground">{{ clientProblemHint }}</p>
+          </div>
+          <Button variant="outline" size="sm" :disabled="busy" @click="handleRetryClient">
+            <RefreshCw :size="14" aria-hidden="true" />
+            {{ t('bookRequests.releases.clientProblem.retry') }}
+          </Button>
+        </div>
+
         <!-- Where a pair ends once neither half needs a release: said here, not left to a passing toast. -->
         <div v-if="finished" role="status" class="mt-10 flex flex-col items-center gap-3 text-center">
           <span class="grid size-11 place-items-center rounded-full bg-success/15 text-success">
@@ -1193,19 +1253,30 @@ function showEverySource(): void {
               constant on a single-indexer search, and dropping them gives the two that actually
               differ the width the release title was being squeezed out of.
             -->
-            <p class="mt-3.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span class="font-medium text-foreground">{{ t('bookRequests.releases.summaryCount', { count: releases.length }) }}</span>
-              <template v-for="fact in summaryFacts" :key="fact">
-                <span aria-hidden="true" class="opacity-50">&middot;</span>
-                <span>{{ fact }}</span>
-              </template>
-              <template v-if="sharedIndexer">
-                <span aria-hidden="true" class="opacity-50">&middot;</span>
-                <span class="rounded-full border px-1.5 py-px font-medium" :class="sharedIndexerClass">
-                  {{ t('bookRequests.releases.allIndexer', { name: sharedIndexer }) }}
-                </span>
-              </template>
-            </p>
+            <div class="mt-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <p class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span class="font-medium text-foreground">{{ t('bookRequests.releases.summaryCount', { count: releases.length }) }}</span>
+                <template v-for="fact in summaryFacts" :key="fact">
+                  <span aria-hidden="true" class="opacity-50">&middot;</span>
+                  <span>{{ fact }}</span>
+                </template>
+                <template v-if="sharedIndexer">
+                  <span aria-hidden="true" class="opacity-50">&middot;</span>
+                  <span class="rounded-full border px-1.5 py-px font-medium" :class="sharedIndexerClass">
+                    {{ t('bookRequests.releases.allIndexer', { name: sharedIndexer }) }}
+                  </span>
+                </template>
+              </p>
+
+              <!--
+                Beside the list it governs rather than on each row: it answers a doubt about the
+                request, and it applies to a magnet pasted by hand as much as to a ranked release.
+              -->
+              <label class="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+                <input v-model="holdForReview" type="checkbox" class="size-3.5 shrink-0 rounded-xs border-border accent-primary" />
+                {{ t('bookRequests.releases.holdForReview') }}
+              </label>
+            </div>
 
             <div
               v-if="nothingMatchedProfile"
@@ -1336,7 +1407,25 @@ function showEverySource(): void {
                         </span>
                       </p>
 
-                      <p class="line-clamp-2 text-sm font-medium text-foreground">{{ release.title }}</p>
+                      <!--
+                        The title is the link because it is what the source page describes, and a
+                        separate button would be a third control competing with Send on every row.
+                        `noreferrer` keeps a private tracker from learning this instance's address.
+                      -->
+                      <p class="line-clamp-2 text-sm font-medium text-foreground">
+                        <a
+                          v-if="release.infoUrl"
+                          :href="release.infoUrl"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          :aria-label="t('bookRequests.releases.releasePageLabel', { title: release.title, indexer: release.indexerName })"
+                          class="rounded-xs underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
+                          {{ release.title }}
+                          <ArrowUpRight :size="13" class="inline-block align-[-2px] text-muted-foreground" aria-hidden="true" />
+                        </a>
+                        <template v-else>{{ release.title }}</template>
+                      </p>
 
                       <!--
                         Two runs, not one. The chips say where the release comes from and what

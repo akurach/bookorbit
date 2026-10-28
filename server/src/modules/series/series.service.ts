@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import type { BooksPage, SeriesBooksPage, SeriesDetail, SeriesNextBookResponse, SeriesPage, SeriesSummary } from '@bookorbit/types';
-import { READER_OPENABLE_FORMATS, SERIES_GAP_PREVIEW_LIMIT, getOpenableFormatsForGroup } from '@bookorbit/types';
+import { READER_OPENABLE_FORMATS, SERIES_GAP_PREVIEW_LIMIT, getOpenableFormatsForGroup, isOptInReaderFormat } from '@bookorbit/types';
 import { MAX_OFFSET_ROWS, isOffsetWithinLimit } from '../../common/constants/pagination.constants';
 import type { RequestUser } from '../../common/types/request-user';
 import { normalizeSeriesTotalBooks } from '../../common/utils/series-total-books.utils';
@@ -14,7 +14,7 @@ import { ListSeriesBooksDto } from './dto/list-series-books.dto';
 import { ListSeriesDto } from './dto/list-series.dto';
 import { SeriesRepository } from './series.repository';
 import { computeSeriesGaps } from './utils/series-gaps.utils';
-import { buildVolumeLadder } from './utils/series-ladder.utils';
+import { buildVolumeLadder, countSeriesVolumes } from './utils/series-ladder.utils';
 
 @Injectable()
 export class SeriesService {
@@ -138,6 +138,8 @@ export class SeriesService {
             name: existsInAnyLibrary.name,
             bookCount: 0,
             readCount: 0,
+            ownedVolumeCount: 0,
+            readVolumeCount: 0,
             authors: existsInAnyLibrary.authors,
             possibleGaps: [],
             expectedBookCount: existsInAnyLibrary.expectedBookCount ?? null,
@@ -149,6 +151,9 @@ export class SeriesService {
     }
 
     const possibleGaps = computeSeriesGaps(detail.indices, detail.bookCount, detail.expectedBookCount);
+    const volumeCounts = detail.members
+      ? countSeriesVolumes({ members: detail.members, bookCount: detail.bookCount, expectedBookCount: detail.expectedBookCount })
+      : { ownedVolumeCount: detail.bookCount, readVolumeCount: detail.readCount };
 
     let items: BooksPage['items'] = [];
     if (bookPage.bookIds.length > 0) {
@@ -186,6 +191,7 @@ export class SeriesService {
       name: detail.name,
       bookCount: detail.bookCount,
       readCount: detail.readCount,
+      ...volumeCounts,
       authors: detail.authors,
       possibleGaps,
       expectedBookCount: detail.expectedBookCount ?? null,
@@ -207,7 +213,9 @@ export class SeriesService {
       seriesId,
       bookId,
       libraryIds,
-      formats: dto.formatGroup ? getOpenableFormatsForGroup(dto.formatGroup) : [...READER_OPENABLE_FORMATS],
+      formats: (dto.formatGroup ? getOpenableFormatsForGroup(dto.formatGroup) : [...READER_OPENABLE_FORMATS]).filter(
+        (format) => dto.includeDjvu === true || !isOptInReaderFormat(format),
+      ),
       contentFilters: user.isSuperuser ? undefined : user.contentFilters,
     });
 

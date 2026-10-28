@@ -12,10 +12,11 @@ import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
 import { AudiolessEpubService } from './audioless-epub.service';
 import { FileLockService } from '../file-write/file-lock.service';
 import { DeliveryArtifactRepository } from './delivery-artifact.repository';
-import { inspectDeliveryEpub } from './epub-delivery-validation';
+import { hasMultimediaEntries, inspectDeliveryEpub } from './epub-delivery-validation';
 
-const DELIVERY_DETECTOR_VERSION = 'overlay-inspection-v2';
-export const DELIVERY_TRANSFORM_VERSION = 'text-only-v2';
+const DELIVERY_DETECTOR_VERSION = 'overlay-inspection-v3';
+export const DELIVERY_TRANSFORM_VERSION = 'text-only-v3';
+const MAX_REMEMBERED_REVISIONS = 4096;
 export interface DeliverySource {
   id: number;
   absolutePath: string;
@@ -44,6 +45,10 @@ export class DeliveryArtifactService {
   private readonly root: string;
   private readonly appRoot: string;
   private readonly builds = new Map<string, Promise<Omit<DeliveryArtifact, 'release'>>>();
+  // A source's SHA-256 keyed by its file signature. Every Kobo sync that converts a position resolves
+  // the delivered artifact again, and re-reading a multi-gigabyte read-along each time outlasted the
+  // device's request timeout. Any write moves the signature's change time, so a stale entry never matches.
+  private readonly revisions = new Map<string, string>();
   private readonly leased = new Map<string, number>();
   private publication: Promise<void> = Promise.resolve();
   private active = 0;
@@ -109,13 +114,16 @@ export class DeliveryArtifactService {
               (source.ino !== undefined && source.ino !== (await handle.stat({ bigint: true })).ino))
           )
             throw new ConflictException({ code: 'DELIVERY_SOURCE_CHANGED' });
-          const sourceRevision = await digestHandle(handle);
+          const revisionKey = `${source.id}:${resolvedSource}:${deliveryFileSignature(before)}`;
+          const knownRevision = this.revisions.get(revisionKey);
+          const sourceRevision = knownRevision ?? (await digestHandle(handle));
           if (
             deliveryFileSignature(before) !== deliveryFileSignature(await handle.stat()) ||
             deliveryFileSignature(before) !== deliveryFileSignature(await stat(source.absolutePath))
           ) {
             throw new ConflictException({ code: 'DELIVERY_SOURCE_CHANGED' });
           }
+          this.rememberRevision(revisionKey, sourceRevision);
           if (expectedRevision && sourceRevision !== expectedRevision) throw new ConflictException({ code: 'DELIVERY_SOURCE_CHANGED' });
           const format = source.format?.toLowerCase() ?? 'unknown';
           const transform =
@@ -174,6 +182,12 @@ export class DeliveryArtifactService {
       if (next) next();
       else this.active--;
     }
+  }
+
+  private rememberRevision(key: string, revision: string): void {
+    this.revisions.delete(key);
+    this.revisions.set(key, revision);
+    if (this.revisions.size > MAX_REMEMBERED_REVISIONS) this.revisions.delete(this.revisions.keys().next().value!);
   }
 
   private async build(
@@ -248,10 +262,13 @@ export class DeliveryArtifactService {
       await publish;
       return { ...metadata, path: join(directory, 'book.epub') };
     } catch (error) {
-      if (requestedVariant !== null || error instanceof ConflictException) throw error;
-      this.logger.warn(
-        `[delivery.prepare] [fail] fileId=${source.id} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}" - inherited delivery uses original fallback`,
-      );
+      if (error instanceof ConflictException) throw error;
+      const failure = `fileId=${source.id} durationMs=${Date.now() - startedAt} errorClass=${error instanceof Error ? error.name : 'Error'} error="${sanitizeLogValue(error instanceof Error ? error.message : String(error))}"`;
+      if (requestedVariant !== null) {
+        this.logger.warn(`[delivery.prepare] [fail] ${failure} - text-only delivery refused`);
+        throw error;
+      }
+      this.logger.warn(`[delivery.prepare] [fail] ${failure} - inherited delivery uses original fallback`);
       return this.prepareOriginal(source, sourceRevision, requestedVariant, 'legacy_fallback');
     } finally {
       await rm(temporary, { recursive: true, force: true });
@@ -265,12 +282,22 @@ export class DeliveryArtifactService {
       if (cached.state === 'verified_present') return true;
       if (cached.retryAt && cached.retryAt > new Date()) throw new BadRequestException({ code: 'DELIVERY_INSPECTION_FAILED' });
     }
+    const startedAt = Date.now();
     try {
-      const present = await inspectDeliveryEpub(
-        await unzipper.Open.file(source.absolutePath),
-        this.limits.maxSourceEntries,
-        this.limits.maxMetadataBytes,
-      );
+      const zip = await unzipper.Open.file(source.absolutePath);
+      let present: boolean;
+      try {
+        present = await inspectDeliveryEpub(zip, this.limits.maxSourceEntries, this.limits.maxMetadataBytes);
+      } catch (error) {
+        // The strict checks guard the narration rewrite. A book with no narration is never rewritten,
+        // so a fault they trip on (duplicate ids, a missing resource, an oversized chapter) must not
+        // make it undeliverable: it goes out as stored, exactly as an original request would.
+        if (!(error instanceof BadRequestException) || source.mediaOverlayAvailable === true || hasMultimediaEntries(zip.files)) throw error;
+        this.logger.warn(
+          `[delivery.inspect] [fail] fileId=${source.id} durationMs=${Date.now() - startedAt} errorClass=${error.name} error="${sanitizeLogValue(error.message)}" - no narration present; delivering the original`,
+        );
+        present = false;
+      }
       await this.assertSourceRevision(source, sourceRevision);
       await this.repository.saveInspection({
         bookFileId: source.id,

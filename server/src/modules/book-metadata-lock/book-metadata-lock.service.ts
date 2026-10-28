@@ -22,7 +22,6 @@ const PROVIDER_ID_LOCK_FIELDS_BY_PROVIDER: Partial<Record<MetadataProviderKey, B
   [MetadataProviderKey.RANOBEDB]: 'ranobedbId',
   [MetadataProviderKey.LUBIMYCZYTAC]: 'lubimyczytacId',
   [MetadataProviderKey.ALADIN]: 'aladinId',
-  [MetadataProviderKey.YANDEX_BOOKS]: 'yandexBooksId',
 };
 
 const COMIC_METADATA_LOCK_FIELDS: Record<keyof ComicMetadataFields, BookMetadataLockField> = {
@@ -171,9 +170,7 @@ export class BookMetadataLockService {
     this.copyResolvedCommunityRating(filteredResolved, resolved, lockedSet, skippedFields);
     this.copyResolvedField(filteredResolved, resolved, 'hardcoverEditionId', 'hardcoverEditionId', lockedSet, skippedFields);
 
-    if (resolved.chapters !== undefined) {
-      filteredResolved.chapters = resolved.chapters;
-    }
+    this.copyResolvedField(filteredResolved, resolved, 'chapters', 'chapters', lockedSet, skippedFields);
 
     if (resolved.coverUrl !== undefined) {
       if (lockedSet.has('cover')) skippedFields.add('cover');
@@ -276,7 +273,6 @@ export class BookMetadataLockService {
     this.copyUpdateField(filteredDto, dto, 'ranobedbId', 'ranobedbId', lockedSet, skippedFields);
     this.copyUpdateField(filteredDto, dto, 'lubimyczytacId', 'lubimyczytacId', lockedSet, skippedFields);
     this.copyUpdateField(filteredDto, dto, 'aladinId', 'aladinId', lockedSet, skippedFields);
-    this.copyUpdateField(filteredDto, dto, 'yandexBooksId', 'yandexBooksId', lockedSet, skippedFields);
 
     if (dto.audioMetadata) {
       const filteredAudioMetadata: NonNullable<UpdateBookMetadataDto['audioMetadata']> = {};
@@ -307,8 +303,11 @@ export class BookMetadataLockService {
       }
 
       if ('chapters' in dto.audioMetadata) {
-        filteredAudioMetadata.chapters = dto.audioMetadata.chapters;
-        hasAudioMetadata = true;
+        if (lockedSet.has('chapters')) skippedFields.add('chapters');
+        else {
+          filteredAudioMetadata.chapters = dto.audioMetadata.chapters;
+          hasAudioMetadata = true;
+        }
       }
 
       if (hasAudioMetadata) {
@@ -446,12 +445,12 @@ export class BookMetadataLockService {
     this.addFieldIfPresent(fields, dto, 'ranobedbId', 'ranobedbId');
     this.addFieldIfPresent(fields, dto, 'lubimyczytacId', 'lubimyczytacId');
     this.addFieldIfPresent(fields, dto, 'aladinId', 'aladinId');
-    this.addFieldIfPresent(fields, dto, 'yandexBooksId', 'yandexBooksId');
 
     if (dto.audioMetadata) {
       this.addFieldIfPresent(fields, dto.audioMetadata, 'narrators', 'narrators');
       this.addFieldIfPresent(fields, dto.audioMetadata, 'durationSeconds', 'durationSeconds');
       this.addFieldIfPresent(fields, dto.audioMetadata, 'abridged', 'abridged');
+      this.addFieldIfPresent(fields, dto.audioMetadata, 'chapters', 'chapters');
     }
 
     if (dto.comicMetadata) {

@@ -8,7 +8,6 @@ import type { CacheKeyDescriptor } from '../../../common/provider-cache/provider
 import type { appConfig } from '../../../config/config';
 import type { ProviderConfigService } from '../../metadata-preferences/provider-config.service';
 import { ProviderThrottleTracker } from '../provider-throttle.tracker';
-import { AladinProvider } from './aladin/aladin.provider';
 import { AmazonProvider } from './amazon/amazon.provider';
 import { AudibleProvider } from './audible/audible.provider';
 import { AudnexusProvider } from './audnexus/audnexus.provider';
@@ -22,13 +21,11 @@ import { ITunesProvider } from './itunes/itunes.provider';
 import { fetchKoboHtmlWithCloudscraper } from './kobo/kobo-cloudscraper.fetcher';
 import { KoboProvider } from './kobo/kobo.provider';
 import { LibroFmProvider } from './librofm/librofm.provider';
-import { LubimyczytacProvider } from './lubimyczytac/lubimyczytac.provider';
 import { isIdentifiable, MetadataProvider } from './metadata-provider';
 import { MetadataSearchParams } from './metadata-search-params';
 import { OpenLibraryProvider } from './open-library/open-library.provider';
 import { RanobeDbClient } from './ranobedb/ranobedb.client';
 import { RanobeDbProvider } from './ranobedb/ranobedb.provider';
-import { YandexBooksProvider } from './yandex-books/yandex-books.provider';
 
 vi.mock('./provider-utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./provider-utils')>()),
@@ -50,12 +47,9 @@ const CONFIG: ProviderConfigurations = {
   comicvine: { enabled: true, apiKey: 'comicvine-secret' },
   ranobedb: { enabled: true },
   kobo: { enabled: true, country: 'ca', language: 'fr' },
-  lubimyczytac: { enabled: true },
-  aladin: { enabled: true, ttbKey: 'aladin-secret' },
-  yandexBooks: { enabled: true },
 };
 
-const SECRETS = ['google-secret', 'amazon-secret', 'hardcover-secret', 'comicvine-secret', 'aladin-secret'];
+const SECRETS = ['google-secret', 'amazon-secret', 'hardcover-secret', 'comicvine-secret'];
 
 function buildProvider(key: MetadataProviderKey, config: ProviderConfigurations = CONFIG): MetadataProvider {
   const providerConfig = { getConfig: () => Promise.resolve(config) } as unknown as ProviderConfigService;
@@ -76,18 +70,12 @@ function buildProvider(key: MetadataProviderKey, config: ProviderConfigurations 
       return new AudnexusProvider(providerConfig);
     case MetadataProviderKey.AUDIBLE:
       return new AudibleProvider(providerConfig);
-    case MetadataProviderKey.LUBIMYCZYTAC:
-      return new LubimyczytacProvider(providerConfig);
     case MetadataProviderKey.HARDCOVER:
       return new HardcoverProvider(new HardcoverClient(), providerConfig);
     case MetadataProviderKey.COMICVINE:
       return new ComicVineProvider(new ComicVineClient(), providerConfig, new ProviderThrottleTracker());
     case MetadataProviderKey.OPEN_LIBRARY:
       return new OpenLibraryProvider(providerConfig);
-    case MetadataProviderKey.ALADIN:
-      return new AladinProvider(providerConfig);
-    case MetadataProviderKey.YANDEX_BOOKS:
-      return new YandexBooksProvider(providerConfig);
     case MetadataProviderKey.RANOBEDB:
       return new RanobeDbProvider(new RanobeDbClient(), providerConfig);
     default:
@@ -122,6 +110,7 @@ type Mutation =
   | 'titleIsExplicitQuery'
   | 'validateCoverPlaceholders'
   | 'maxCandidatesPerProvider'
+  | 'resultsPerProvider'
   | 'requireUnambiguousMatch'
   | 'hardcoverEditionId'
   | 'isAudiobook'
@@ -137,6 +126,7 @@ const MUTATIONS: Record<Mutation, (params: MetadataSearchParams) => MetadataSear
   titleIsExplicitQuery: (params) => ({ ...params, titleIsExplicitQuery: true }),
   validateCoverPlaceholders: (params) => ({ ...params, validateCoverPlaceholders: false }),
   maxCandidatesPerProvider: (params) => ({ ...params, maxCandidatesPerProvider: 1 }),
+  resultsPerProvider: (params) => ({ ...params, resultsPerProvider: 20 }),
   requireUnambiguousMatch: (params) => ({ ...params, requireUnambiguousMatch: true }),
   hardcoverEditionId: (params) => ({ ...params, hardcoverEditionId: '99' }),
   // Leaves the audiobook gate on, since includeAudiobookProviders is set.
@@ -167,19 +157,10 @@ const LOOKUP_ID = { inputs: { id: 'provider-id' }, reads: [] as Mutation[] };
 
 const CASES: DeclarationCase[] = [
   {
-    key: MetadataProviderKey.YANDEX_BOOKS,
-    withIsbn: { ...TITLE_AUTHOR, isAudiobook: true },
-    withoutIsbn: { ...TITLE_AUTHOR, isAudiobook: true },
-    searchReads: ['isAudiobook', 'maxCandidatesPerProvider'],
-    honoursMax: true,
-    lookup: LOOKUP_ID,
-    fingerprint: {},
-  },
-  {
     key: MetadataProviderKey.GOOGLE,
     withIsbn: ISBN_ONLY,
     withoutIsbn: TITLE_AUTHOR,
-    searchReads: ['validateCoverPlaceholders'],
+    searchReads: ['validateCoverPlaceholders', 'resultsPerProvider'],
     honoursMax: false,
     lookup: LOOKUP_ID,
     fingerprint: {},
@@ -247,19 +228,10 @@ const CASES: DeclarationCase[] = [
     fingerprint: { domain: 'co.uk' },
   },
   {
-    key: MetadataProviderKey.LUBIMYCZYTAC,
-    withIsbn: { query: 'Dune', author: 'Frank Herbert' },
-    withoutIsbn: { query: 'Dune', author: 'Frank Herbert' },
-    searchReads: ['maxCandidatesPerProvider'],
-    honoursMax: true,
-    lookup: LOOKUP_ID,
-    fingerprint: {},
-  },
-  {
     key: MetadataProviderKey.HARDCOVER,
     withIsbn: { ...TITLE_AUTHOR, ...ISBN_ONLY, isAudiobook: true, hardcoverEditionId: '42' },
     withoutIsbn: { ...TITLE_AUTHOR, isAudiobook: true, hardcoverEditionId: '42' },
-    searchReads: ['isAudiobook', 'hardcoverEditionId'],
+    searchReads: ['isAudiobook', 'hardcoverEditionId', 'resultsPerProvider'],
     honoursMax: false,
     lookup: {
       inputs: { id: 'provider-id', isAudiobook: true, hardcoverEditionId: '42', isbn: '9780441172719' },
@@ -280,16 +252,7 @@ const CASES: DeclarationCase[] = [
     key: MetadataProviderKey.OPEN_LIBRARY,
     withIsbn: ISBN_ONLY,
     withoutIsbn: TITLE_AUTHOR,
-    searchReads: [],
-    honoursMax: false,
-    lookup: LOOKUP_ID,
-    fingerprint: {},
-  },
-  {
-    key: MetadataProviderKey.ALADIN,
-    withIsbn: ISBN_ONLY,
-    withoutIsbn: TITLE_AUTHOR,
-    searchReads: [],
+    searchReads: ['resultsPerProvider'],
     honoursMax: false,
     lookup: LOOKUP_ID,
     fingerprint: {},
@@ -327,20 +290,21 @@ describe('provider cache declarations', () => {
         MetadataProviderKey.LIBROFM,
         MetadataProviderKey.AUDNEXUS,
         MetadataProviderKey.AUDIBLE,
-        MetadataProviderKey.LUBIMYCZYTAC,
         MetadataProviderKey.HARDCOVER,
         MetadataProviderKey.COMICVINE,
         MetadataProviderKey.OPEN_LIBRARY,
-        MetadataProviderKey.ALADIN,
         MetadataProviderKey.RANOBEDB,
-        MetadataProviderKey.YANDEX_BOOKS,
       ].sort(),
     );
   });
 
   describe.each(CASES)('$key', (testCase) => {
     it('declares the current mapping version', () => {
-      expect(specOf(testCase.key).version).toBe(testCase.key === MetadataProviderKey.COMICVINE ? 2 : 1);
+      const bumped: Partial<Record<MetadataProviderKey, number>> = {
+        [MetadataProviderKey.COMICVINE]: 3,
+        [MetadataProviderKey.HARDCOVER]: 2,
+      };
+      expect(specOf(testCase.key).version).toBe(bumped[testCase.key] ?? 1);
     });
 
     it('keys a search on the fields it reads', () => {
@@ -399,7 +363,6 @@ describe('provider cache declarations', () => {
       [MetadataProviderKey.GOOGLE, { ...CONFIG, google: { enabled: true, apiKey: '   ' } }],
       [MetadataProviderKey.HARDCOVER, { ...CONFIG, hardcover: { enabled: true, apiKey: '' } }],
       [MetadataProviderKey.COMICVINE, { ...CONFIG, comicvine: { enabled: true, apiKey: '' } }],
-      [MetadataProviderKey.ALADIN, { ...CONFIG, aladin: { enabled: true, ttbKey: ' ' } }],
     ])('%s is unavailable without its credential', async (key, config) => {
       expect((await specOf(key, config).context()).available).toBe(false);
     });
@@ -419,6 +382,18 @@ describe('provider cache declarations', () => {
   });
 
   describe('special cases', () => {
+    it.each([MetadataProviderKey.GOOGLE, MetadataProviderKey.HARDCOVER, MetadataProviderKey.OPEN_LIBRARY])(
+      'keys %s on a widened page only, so a default-sized answer keeps its key',
+      (key) => {
+        const spec = specOf(key);
+        const pageSize = (resultsPerProvider: number | undefined) => spec.describeSearch({ ...WITHOUT_ISBN, resultsPerProvider })?.inputs.pageSize;
+        expect(pageSize(undefined)).toBeUndefined();
+        expect(pageSize(5)).toBeUndefined();
+        expect(pageSize(10)).toBeUndefined();
+        expect(pageSize(20)).toBe(20);
+      },
+    );
+
     it('keys iTunes searches on an absent medium as an ebook, but keeps lookups tri-state', () => {
       const spec = specOf(MetadataProviderKey.ITUNES);
       const absent = { ...WITHOUT_ISBN, isAudiobook: undefined };
@@ -440,11 +415,6 @@ describe('provider cache declarations', () => {
       expect(descriptorKey(spec.describeSearch({ ...params, title: 'Other' }))).toBe(descriptorKey(spec.describeSearch(params)));
     });
 
-    it('keys LubimyCzytac on the ISBN when no title is given', () => {
-      const spec = specOf(MetadataProviderKey.LUBIMYCZYTAC);
-      expect(spec.describeSearch({ ...BASE, title: undefined })?.inputs).toEqual({ query: '9780441172719', author: 'Frank Herbert' });
-    });
-
     it('keys the audiobook gate for audiobook-only providers', () => {
       for (const key of [MetadataProviderKey.AUDIBLE, MetadataProviderKey.AUDNEXUS, MetadataProviderKey.LIBROFM]) {
         const spec = specOf(key);
@@ -456,13 +426,7 @@ describe('provider cache declarations', () => {
 
     it('declares trustEmpty only for API providers', () => {
       const trusting = CASES.filter((c) => specOf(c.key).trustEmpty).map((c) => c.key);
-      for (const scraper of [
-        MetadataProviderKey.AMAZON,
-        MetadataProviderKey.GOODREADS,
-        MetadataProviderKey.KOBO,
-        MetadataProviderKey.LUBIMYCZYTAC,
-        MetadataProviderKey.LIBROFM,
-      ]) {
+      for (const scraper of [MetadataProviderKey.AMAZON, MetadataProviderKey.GOODREADS, MetadataProviderKey.KOBO, MetadataProviderKey.LIBROFM]) {
         expect(trusting).not.toContain(scraper);
       }
     });
@@ -506,9 +470,7 @@ describe('provider egress ignores fields outside the cache key', () => {
     const ignored = ALL_MUTATIONS.filter((mutation) => !testCase.searchReads.includes(mutation));
 
     it.each(ignored)('sends the same search requests when %s changes', async (mutation) => {
-      for (const source of [BASE, WITHOUT_ISBN]) {
-        // The ebook-only source needs an ebook request to exercise its egress.
-        const base = testCase.key === MetadataProviderKey.YANDEX_BOOKS ? { ...source, isAudiobook: false } : source;
+      for (const base of [BASE, WITHOUT_ISBN]) {
         const expected = await outgoing(testCase.key, base, 'search');
         expect(expected.length).toBeGreaterThan(0);
         expect(await outgoing(testCase.key, MUTATIONS[mutation](base), 'search')).toEqual(expected);

@@ -35,7 +35,6 @@ export interface PdfParsed {
   koboId: string | null;
   lubimyczytacId: string | null;
   aladinId: string | null;
-  yandexBooksId: string | null;
   itunesId: string | null;
   coverBuffer: Buffer | null;
 }
@@ -184,7 +183,6 @@ export async function parsePdfBuffer(absolutePath: string, buf: Buffer, options:
     koboId: xmp?.koboId ?? null,
     lubimyczytacId: xmp?.lubimyczytacId ?? null,
     aladinId: xmp?.aladinId ?? null,
-    yandexBooksId: xmp?.yandexBooksId ?? null,
     itunesId: xmp?.itunesId ?? null,
     coverBuffer,
   };

@@ -225,6 +225,42 @@ describe('EditMetadataTab cover tiles', () => {
     expect(body.metadata).toMatchObject({ isbn10: '0306406152', isbn13: '9780306406157' })
   })
 
+  // Issue #1624: identifiers pasted from Amazon carry hyphens and invisible characters.
+  it('saves pasted identifiers cleaned instead of truncated', async () => {
+    vi.mocked(api).mockImplementation(async (url, init) => {
+      if (init?.method === 'PATCH') return json({ book: savedBook, write: null, libraryAutoWriteEnabled: false })
+      if (String(url).includes('/metadata-fetch/providers')) return json([{ key: 'amazon' }, { key: 'google' }, { key: 'audible' }])
+      return json({})
+    })
+    const wrapper = mountTab(makeBook())
+    await flushPromises()
+
+    const isbn13 = wrapper.get<HTMLInputElement>('[data-field="isbn13"] input')
+    const isbn10 = wrapper.get<HTMLInputElement>('[data-field="isbn10"] input')
+    expect(isbn13.attributes('maxlength')).toBeUndefined()
+    expect(isbn10.attributes('maxlength')).toBeUndefined()
+
+    await isbn13.setValue('978-3426226223')
+    await isbn10.setValue('\u200B0-8044-2957-x')
+    await wrapper.get('#provider-id-amazonId').setValue('\u200BB00X47ZVXM')
+    await wrapper.get('#provider-id-audibleId').setValue(' b002v0qk4c ')
+    await wrapper.get('#provider-id-googleBooksId').setValue('zyTC-Al_FPjgYC\u200E')
+
+    expect(isbn13.element.value).toBe('9783426226223')
+    expect(isbn10.element.value).toBe('080442957X')
+
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+    const body = JSON.parse(patchCalls()[0]![1]!.body as string)
+    expect(body.metadata).toMatchObject({
+      isbn13: '9783426226223',
+      isbn10: '080442957X',
+      amazonId: 'B00X47ZVXM',
+      audibleId: 'B002V0QK4C',
+      googleBooksId: 'zyTC-Al_FPjgYC',
+    })
+  })
+
   it('warns when auto-fill used saved results for a provider that was unavailable', async () => {
     vi.mocked(toast.warning).mockClear()
     vi.mocked(api).mockImplementation(async (url) => {
@@ -374,6 +410,68 @@ describe('EditMetadataTab cover tiles', () => {
 
     expect(order).toEqual(['covers:ebook', 'form', 'covers:audio'])
     expect(JSON.parse(String(patchCalls()[0]![1]!.body)).lockedFields).toEqual([])
+  })
+
+  it('writes a cover staged while its locked slot was opened here, then locks the slot again', async () => {
+    const wrapper = mountTab(makeBook({ lockedFields: ['title', 'audioCover'] }))
+    await flushPromises()
+    const coverPanelStub = wrapper.getComponent(CoverEditorPanelStub)
+    coverPanelStub.vm.$emit('toggleLock', 'audioCover')
+    await flushPromises()
+    panel.hasPending.value = true
+    panel.pendingMedia.value = ['audio']
+    coverPanelStub.vm.$emit('toggleLock', 'audioCover')
+    await flushPromises()
+
+    const order: string[] = []
+    panel.confirm.mockImplementation(async (media) => {
+      if (!media?.length) return true
+      order.push(`covers:${media.join(',')}`)
+      coverPanelStub.vm.$emit('coverChanged', 'audio')
+      return true
+    })
+    const relockedBook = makeBook({ lockedFields: ['title', 'audioCover'] })
+    vi.mocked(api).mockImplementation(async (url, init) => {
+      if (init?.method !== 'PATCH') return json([])
+      const lockedFields = JSON.parse(String(init.body)).lockedFields
+      if (String(url).endsWith('/metadata-locks')) {
+        order.push(`locks:${lockedFields.join(',')}`)
+        return json(relockedBook)
+      }
+      order.push(`form:${lockedFields.join(',')}`)
+      return json({ book: makeBook({ lockedFields: ['title'] }), write: null, libraryAutoWriteEnabled: false })
+    })
+
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(order).toEqual(['form:title', 'covers:audio', 'locks:title,audioCover'])
+    expect(wrapper.emitted('saved')!.at(-1)).toEqual([relockedBook])
+    expect(wrapper.emitted('coverChanged')).toEqual([['audio']])
+    expect(coverPanelStub.props('lockedFields')).toEqual(['title', 'audioCover'])
+  })
+
+  it('locks the slot again when the cover staged in it fails to save', async () => {
+    const wrapper = mountTab(makeBook({ lockedFields: ['audioCover'] }))
+    await flushPromises()
+    const coverPanelStub = wrapper.getComponent(CoverEditorPanelStub)
+    coverPanelStub.vm.$emit('toggleLock', 'audioCover')
+    await flushPromises()
+    panel.hasPending.value = true
+    panel.pendingMedia.value = ['audio']
+    coverPanelStub.vm.$emit('toggleLock', 'audioCover')
+    await flushPromises()
+    panel.confirm.mockImplementation(async (media) => !media?.length)
+    savedBook = makeBook({ lockedFields: [] })
+
+    await saveButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(panel.confirm).toHaveBeenLastCalledWith(['audio'])
+    expect(patchCalls().map(([url, init]) => [String(url).split('/').at(-1), JSON.parse(String(init!.body)).lockedFields])).toEqual([
+      ['metadata-and-locks', []],
+      ['metadata-locks', ['audioCover']],
+    ])
   })
 
   it('clears the unsaved covers with the rest of the form', async () => {

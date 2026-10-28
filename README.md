@@ -97,7 +97,7 @@ Take your library anywhere with the official native BookOrbit app. Read ebooks, 
 ### Library Management
 
 - **Multiple Libraries**: Isolate content with per-library folders, custom scan rules, and format priorities.
-- **14 Metadata Providers**: Google Books, Open Library, Amazon, Goodreads, Kobo, Hardcover, Audible, Audnexus, Libro.fm, and iTunes, plus ComicVine for comics, RanobeDB for light novels, and Aladin and Lubimyczytać for Korean and Polish catalogs. Cover art is sourced separately from iTunes, DuckDuckGo, and AudiobookCovers.
+- **12 Metadata Providers**: Google Books, Open Library, Amazon, Goodreads, Kobo, Hardcover, Audible, Audnexus, Libro.fm, and iTunes, plus ComicVine for comics and RanobeDB for light novels. [External providers](docs/METADATA_PROVIDERS.md) add more, such as Douban, FantLab, J-Novel Club, Libris, LubimyCzytac and MangaBaka. Cover art is sourced separately from iTunes, DuckDuckGo, and AudiobookCovers.
 - **Smart Scopes & Collections**: Organize your collection with curated lists and dynamic, rule-based saved filters.
 
 ### Platform & Delivery
@@ -155,7 +155,7 @@ Read the full walkthrough at **[bookorbit.app/my-workflow](https://bookorbit.app
 
 The BookOrbit plugin for KOReader adds progress sync, two-way annotation sync, and a native catalog browser: navigate, search, and download books from your library without leaving the device.
 
-![BookOrbit KOReader Plugin showing dashboard, catalog search, and book details](docs/images/koreader-plugin-preview.png)
+![BookOrbit KOReader Plugin on unbranded e-readers showing Home, book details, catalog browsing, dashboard customization, series, and navigation](docs/images/koreader-plugin-preview.webp)
 
 1. In BookOrbit, go to **Settings > KOReader**, create credentials if prompted, and click **Download Plugin**.
 2. Unzip `bookorbit.koplugin.zip`.
@@ -167,11 +167,18 @@ The download is pre-configured with your server URL and credentials, so there is
 
 ## Documentation and Contributing
 
-Full documentation is at **[bookorbit.app](https://bookorbit.app/what-is-bookorbit)**, covering libraries, metadata, readers, Kobo sync, OPDS, users and permissions, OIDC setup, and more.
+Full documentation lives at **[bookorbit.app](https://bookorbit.app/what-is-bookorbit)**: libraries, metadata, readers, Kobo sync, OPDS, users and permissions, OIDC and more.
 
-For setting up book requests, see the [book requests guide](docs/BOOK_REQUESTS.md): indexers,
-download clients, path mappings, automation, and the encryption key they all need.
-For local development, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). To contribute, see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the full workflow: branch naming, test expectations, PR checklist, and commit format.
+**Guides**
+
+- **Book requests**: indexers, download clients, path mappings, automation and the encryption key they need. See the [book requests guide](https://bookorbit.app/book-requests/).
+- **Read-aloud**: optional STAlign generation and QuartzNet hardware acceleration. See [docs/READ_ALOUD.md](docs/READ_ALOUD.md).
+- **External metadata providers**: add a source that runs beside BookOrbit, such as FantLab or MangaBaka, with [docs/METADATA_PROVIDERS.md](docs/METADATA_PROVIDERS.md), or build your own with [docs/BUILDING_METADATA_PROVIDERS.md](docs/BUILDING_METADATA_PROVIDERS.md).
+
+**Contributing**
+
+- **Local development**: architecture, first-time setup, running, testing and conventions in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+- **Contributing**: branch naming, test expectations, the PR checklist and commit format in [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Unsupported Storage Configurations
 
@@ -208,6 +215,10 @@ When adding user-facing text in code, add the Vue I18n key only to `client/src/l
 - **Security vulnerabilities:** Follow the private reporting process in the [Security Policy](.github/SECURITY.md).
 
 Questions are welcome, even if you are unsure whether something is a bug. Share workflows, your setup, or companion apps in community conversations. See the [community guide](docs/COMMUNITY.md) for choosing a category and how topics are handled.
+
+## A Note on the API
+
+BookOrbit is under very active development, with new features and improvements landing often. Its API grows alongside the official apps and is shaped around what they need, so it changes at the same pace. Care is taken to keep released app versions working, but the API is not a stable public interface and carries no compatibility guarantees. The official apps, OPDS, Kobo sync, and the KOReader plugin are the supported ways to connect, so for the smoothest experience start there.
 
 ## License and Attribution
 

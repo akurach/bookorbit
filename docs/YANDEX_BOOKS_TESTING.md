@@ -6,12 +6,12 @@ not represent upstream approval or replace checks on the eventual PR branches.
 
 ## Coverage
 
-| Layer                       | Scenarios                                                                                                                                                                                             |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server unit                 | Provider mapping and request limits, account credentials, matching, sync leases, safe relinking and preservation rules                                                                                |
-| Vue component/composable    | Entry filtering and pagination through the real composable, choosing and relinking a local book, retry after an error, attach-file action                                                             |
-| `yandex-books-metadata` E2E | Enable provider, search through its real implementation, apply a candidate, retain unrelated metadata and persist the provider ID and cover; disabled and ISBN-only searches make no provider request |
-| `yandex-books-reading` E2E  | Idempotent import, local-file matching and attachment, duplicate repair and deletion guards, status preservation, invalid/expired credentials, reconnect, user isolation and optional cover failure   |
+| Layer                       | Scenarios                                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server unit                 | Provider mapping and request limits, account credentials, matching, sync leases, safe relinking and preservation rules                                                                              |
+| Vue component/composable    | Entry filtering and pagination through the real composable, choosing and relinking a local book, retry after an error, attach-file action                                                           |
+| `yandex-books-metadata` E2E | Register the official HTTP provider protocol, search/lookup, apply metadata and persist native IDs and covers; disabled/unavailable source handling                                                 |
+| `yandex-books-reading` E2E  | Idempotent import, local-file matching and attachment, duplicate repair and deletion guards, status preservation, invalid/expired credentials, reconnect, user isolation and optional cover failure |
 
 The E2E suites boot NestJS against a disposable PostgreSQL database. External
 Yandex responses and credentials are synthetic. CI never needs an account token,
@@ -26,6 +26,10 @@ an external snapshot without a percentage cannot erase a known position.
 These are HTTP/database E2E tests and Vue integration tests, not a browser
 automation recording. A real-client recording and fresh checks against the
 approved upstream target remain part of PR preparation.
+
+The `yandex-migration-upgrade` suite also verifies the 3.4 fork to 3.6 transition,
+including schema equivalence, rollback, partial-state rejection and identifier conflicts.
+The workflow builds a dependency-free application artifact tied to its commit.
 
 ## Run locally
 
@@ -59,7 +63,7 @@ Each suite writes its own JUnit report under `test-results/server/`.
 - The final gate requires all selected checks to succeed. Replaced runs on the
   same branch are cancelled.
 
-The two registry entries also participate in the existing full-suite matrix.
+The three registry entries also participate in the existing full-suite matrix.
 The fork-specific workflow and selector can stay out of upstream PRs; include the
 relevant tests and registry entry with each feature, following maintainer guidance.
 

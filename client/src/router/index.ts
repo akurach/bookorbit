@@ -204,10 +204,11 @@ export const routes: RouteRecordRaw[] = [
         path: '',
         name: 'dashboard',
         component: () => import('@/views/DashboardView.vue'),
-        meta: { title: () => t('titles.dashboard') },
+        meta: { titleRow: true, title: () => t('titles.dashboard') },
       },
       {
         path: '/settings',
+        meta: { titleRow: true },
         component: () => import('@/views/SettingsView.vue'),
         children: [
           { path: '', redirect: { name: 'settings-appearance-theme' } },
@@ -264,7 +265,7 @@ export const routes: RouteRecordRaw[] = [
             path: 'appearance/book-covers',
             name: 'settings-appearance-book-covers',
             component: () => import('@/features/settings/AppearanceBookCoverSettings.vue'),
-            meta: { title: () => t('titles.appearance.book-covers') },
+            meta: { maxWidth: 'max-w-4xl', title: () => t('titles.appearance.book-covers') },
           },
           {
             path: 'appearance/icons',
@@ -327,7 +328,7 @@ export const routes: RouteRecordRaw[] = [
             path: 'reader/fonts',
             name: 'settings-reader-fonts',
             component: () => import('@/features/settings/FontsSettings.vue'),
-            meta: { title: () => t('titles.reader.fonts') },
+            meta: { maxWidth: 'max-w-[82rem]', title: () => t('titles.reader.fonts') },
           },
           {
             path: 'reader/general',
@@ -373,7 +374,8 @@ export const routes: RouteRecordRaw[] = [
             path: 'metadata/custom-fields',
             name: 'settings-metadata-custom-fields',
             component: () => import('@/features/settings/metadata-preferences/CustomMetadataSettings.vue'),
-            meta: { maxWidth: 'max-w-4xl', title: () => t('titles.metadata.custom-fields') },
+            // The roster's five columns need the width Users gets; 4xl left half of a 1080p pane empty.
+            meta: { maxWidth: 'max-w-6xl', title: () => t('titles.metadata.custom-fields') },
           },
           {
             path: 'metadata/score',
@@ -387,7 +389,7 @@ export const routes: RouteRecordRaw[] = [
             path: 'metadata/auto-fetch',
             name: 'settings-metadata-auto-fetch',
             component: () => import('@/features/settings/metadata-auto-fetch/BookMetadataFetchSettings.vue'),
-            meta: { maxWidth: 'max-w-3xl', title: () => t('titles.metadata.auto-fetch') },
+            meta: { maxWidth: 'max-w-[100rem]', title: () => t('titles.metadata.auto-fetch') },
           },
           {
             path: 'metadata/authors',
@@ -527,7 +529,7 @@ export const routes: RouteRecordRaw[] = [
             name: 'settings-admin-server-fonts',
             component: () => import('@/features/settings/ServerFontsSettings.vue'),
             props: { embedded: true },
-            meta: { maxWidth: 'max-w-3xl', title: () => t('titles.admin.server-fonts') },
+            meta: { maxWidth: 'max-w-[82rem]', title: () => t('titles.admin.server-fonts') },
           },
           {
             path: 'admin/tts',
@@ -589,7 +591,7 @@ export const routes: RouteRecordRaw[] = [
         path: '/book-dock',
         name: 'book-dock',
         component: () => import('@/views/BookDockView.vue'),
-        meta: { title: () => t('titles.bookDock') },
+        meta: { titleRow: true, title: () => t('titles.bookDock') },
       },
       // A request opens as a drawer over the list rather than as its own page, but it keeps its
       // own URL: these are children so a hard load of /requests/:id renders the list underneath.
@@ -597,7 +599,7 @@ export const routes: RouteRecordRaw[] = [
         path: '/requests',
         name: 'book-requests',
         component: () => import('@/features/book-requests/BookRequestsPage.vue'),
-        meta: { title: () => t('titles.bookRequests') },
+        meta: { titleRow: true, title: () => t('titles.bookRequests') },
         children: [
           {
             path: ':id',
@@ -617,19 +619,19 @@ export const routes: RouteRecordRaw[] = [
         path: '/whats-new',
         name: 'whats-new',
         component: () => import('@/features/whats-new/WhatsNewView.vue'),
-        meta: { title: () => t('titles.whatsNew') },
+        meta: { titleRow: true, title: () => t('titles.whatsNew') },
       },
       {
         path: '/annotations',
         name: 'annotations',
         component: () => import('@/features/annotations/views/AnnotationsHubView.vue'),
-        meta: { title: () => t('titles.annotations') },
+        meta: { titleRow: true, title: () => t('titles.annotations') },
       },
       {
         path: '/statistics',
         name: 'statistics',
         component: () => import('@/features/statistics/components/StatisticsPage.vue'),
-        meta: { title: resolveStatisticsTitle },
+        meta: { titleRow: true, title: resolveStatisticsTitle },
         beforeEnter: (to) => {
           if (to.query.tab === 'achievements') {
             return { name: 'achievements' }
@@ -637,59 +639,59 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: '/history',
+        name: 'reading-history',
+        component: () => import('@/features/reading-history/views/ReadingHistoryView.vue'),
+        meta: { titleRow: true, title: () => t('titles.readingHistory') },
+      },
+      {
         path: '/achievements',
         name: 'achievements',
         component: () => import('@/views/AchievementsView.vue'),
-        meta: { title: () => t('titles.achievements') },
+        meta: { titleRow: true, title: () => t('titles.achievements') },
       },
       {
         path: '/libraries',
         name: 'libraries',
         component: () => import('@/features/library/views/LibrariesView.vue'),
-        meta: { title: () => t('titles.libraries') },
+        meta: { titleRow: true, title: () => t('titles.libraries') },
       },
       {
         path: '/smart-scopes',
         name: 'smart-scopes',
         component: () => import('@/features/smart-scope/views/SmartScopesView.vue'),
-        meta: { title: () => t('titles.smartScopes') },
+        meta: { titleRow: true, title: () => t('titles.smartScopes') },
       },
       {
         path: '/collections',
         name: 'collections',
         component: () => import('@/features/collection/views/CollectionsView.vue'),
-        meta: { title: () => t('titles.collections') },
+        meta: { titleRow: true, title: () => t('titles.collections') },
       },
       {
         path: '/library/:id',
         name: 'library',
         component: () => import('@/views/HomeView.vue'),
-        meta: {
-          title: (to) => fallbackById('titles.library', numericParam(to, 'id')),
-        },
+        meta: { titleRow: true, title: (to) => fallbackById('titles.library', numericParam(to, 'id')) },
       },
       ...PODCAST_APP_ROUTES,
       {
         path: '/smart-scope/:id',
         name: 'smartScope',
         component: () => import('@/views/SmartScopeView.vue'),
-        meta: {
-          title: (to) => fallbackById('titles.smartScope', numericParam(to, 'id')),
-        },
+        meta: { titleRow: true, title: (to) => fallbackById('titles.smartScope', numericParam(to, 'id')) },
       },
       {
         path: '/collection/:id',
         name: 'collection',
         component: () => import('@/views/CollectionView.vue'),
-        meta: {
-          title: (to) => fallbackById('titles.collection', numericParam(to, 'id')),
-        },
+        meta: { titleRow: true, title: (to) => fallbackById('titles.collection', numericParam(to, 'id')) },
       },
       {
         path: '/authors',
         name: 'authors',
         component: () => import('@/features/author/views/AuthorsView.vue'),
-        meta: { title: () => t('titles.authors') },
+        meta: { titleRow: true, title: () => t('titles.authors') },
       },
       {
         path: '/authors/:id',
@@ -703,7 +705,7 @@ export const routes: RouteRecordRaw[] = [
         path: '/series',
         name: 'series',
         component: () => import('@/features/series/views/SeriesView.vue'),
-        meta: { title: () => t('titles.series') },
+        meta: { titleRow: true, title: () => t('titles.series') },
       },
       {
         path: '/series/:seriesId',
@@ -741,6 +743,12 @@ export const routes: RouteRecordRaw[] = [
             name: 'tools-missing-resources',
             component: () => import('@/features/tools/missing-resources/views/MissingResourcesView.vue'),
             meta: { title: () => t('titles.missingResources') },
+          },
+          {
+            path: 'chapter-health',
+            name: 'tools-chapter-health',
+            component: () => import('@/features/tools/chapter-health/views/ChapterHealthView.vue'),
+            meta: { title: () => t('titles.chapterHealth') },
           },
           {
             path: ':pathMatch(.*)*',

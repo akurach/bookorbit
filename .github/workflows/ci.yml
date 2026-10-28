@@ -261,6 +261,7 @@ jobs:
           filters: |
             server:
               - 'server/**'
+              - 'workers/**'
               # Server tests assert against the plugin sources, so plugin-only
               # changes can break them.
               - 'koreader-plugin/**'
@@ -414,6 +415,7 @@ jobs:
         run: |
           if [[ "$PACKAGE" == "server" ]]; then
             pnpm --filter server type-check
+            pnpm --filter @bookorbit/read-aloud-worker type-check
           else
             pnpm --filter @bookorbit/types build
             pnpm --filter client type-check
@@ -488,6 +490,15 @@ jobs:
             pnpm --filter client exec vitest --run --coverage --reporter=default --reporter=junit --outputFile="$JUNIT_OUTPUT"
           fi
 
+      # The worker's control process, runner and resume logic run against a fake pipeline; the real
+      # STAlign smoke run stays opt-in (READ_ALOUD_SMOKE=1).
+      - name: Run read-aloud worker tests
+        if: steps.has-changes.outputs.run == 'true' && matrix.package == 'server'
+        shell: bash
+        run: |
+          pnpm --filter @bookorbit/types build
+          pnpm --filter @bookorbit/read-aloud-worker test
+
       - name: Upload coverage reports to Codecov
         if: steps.has-changes.outputs.run == 'true' && env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -518,7 +529,7 @@ jobs:
           steps.has-changes.outputs.run == 'true' &&
           hashFiles(format('test-results/{0}/junit.xml', matrix.package)) != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2
+        uses: EnricoMi/publish-unit-test-result-action@7622c5bf3d112a72ab4fa3951c2aa5723d8ab92d # v2
         with:
           check_name: ${{ matrix.package == 'server' && 'Server Unit Tests' || 'Client Unit Tests' }}
           files: ${{ format('test-results/{0}/junit.xml', matrix.package) }}
@@ -531,7 +542,7 @@ jobs:
           steps.has-changes.outputs.run == 'true' &&
           hashFiles(format('test-results/{0}/junit.xml', matrix.package)) != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-report-${{ matrix.package }}
           path: test-results/${{ matrix.package }}
@@ -580,7 +591,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -678,6 +689,28 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.pr-meta.outputs.scan_tag }}
+          format: table
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Build read-aloud worker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./workers/read-aloud/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-read-aloud-worker:${{ steps.pr-meta.outputs.scan_tag }}
+          platforms: linux/amd64
+          cache-from: type=gha,scope=ci-yml-pr-read-aloud-worker
+          cache-to: type=gha,mode=max,scope=ci-yml-pr-read-aloud-worker
+
+      - name: Scan read-aloud worker image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-read-aloud-worker:${{ steps.pr-meta.outputs.scan_tag }}
           format: table
           vuln-type: os,library
           severity: CRITICAL,HIGH

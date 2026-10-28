@@ -55,6 +55,7 @@ function validRuleValue(operator: RuleOperator, field: RuleField): { value?: unk
     case 'lt':
     case 'lte':
     case 'withinLast':
+    case 'moreThanAgo':
       return { value: 1 };
     case 'between':
       return DATE_FIELDS.includes(field) ? { value: '2024-01-01', valueTo: '2024-06-01' } : { value: 1, valueTo: 2 };
@@ -77,7 +78,7 @@ function validCustomRuleValue(operator: RuleOperator, type: CustomMetadataFieldT
       return operator === 'between' ? { value: 1, valueTo: 5 } : { value: 1 };
     case 'date':
       if (operator === 'between') return { value: '2024-01-01', valueTo: '2024-06-01' };
-      return operator === 'withinLast' ? { value: 7 } : { value: '2024-01-01' };
+      return operator === 'withinLast' || operator === 'moreThanAgo' ? { value: 7 } : { value: '2024-01-01' };
     case 'text':
     case 'url':
       return { value: 'test' };
@@ -243,24 +244,21 @@ describe('validateGroupRule', () => {
     expect(() => validateGroupRule(rule)).toThrow(BadRequestException);
   });
 
-  it('rejects providers that do not expose community ratings', () => {
+  it('rejects a rating provider that cannot be a provider key', () => {
     const rule = {
       type: 'group',
       join: 'AND',
-      rules: [{ type: 'rule', field: 'communityRating', operator: 'gte', value: 4.5, provider: 'kobo' }],
+      rules: [{ type: 'rule', field: 'communityRating', operator: 'gte', value: 4.5, provider: 'Not A Provider' }],
     };
 
     expect(() => validateGroupRule(rule)).toThrow(BadRequestException);
   });
 
-  it('rejects unsupported providers on community rating count rules', () => {
-    const rule = {
-      type: 'group',
-      join: 'AND',
-      rules: [{ type: 'rule', field: 'communityRatingCount', operator: 'gte', value: 1000, provider: 'kobo' }],
-    };
-
-    expect(() => validateGroupRule(rule)).toThrow(BadRequestException);
+  it("accepts an external provider's ratings on rating and count rules", () => {
+    for (const field of ['communityRating', 'communityRatingCount']) {
+      const rule = { type: 'group', join: 'AND', rules: [{ type: 'rule', field, operator: 'gte', value: 4, provider: 'fantlab' }] };
+      expect(() => validateGroupRule(rule)).not.toThrow();
+    }
   });
 
   it('accepts array values for includesAny operators', () => {
@@ -437,6 +435,24 @@ describe('date field value validation', () => {
   it('does not require date-shaped values for withinLast (a day count, not a date)', () => {
     const rule = { type: 'group', join: 'AND', rules: [{ type: 'rule', field: 'finishedAt', operator: 'withinLast', value: 30 }] };
     expect(validateGroupRule(rule)).toBeDefined();
+  });
+
+  it('accepts a non-negative day count for moreThanAgo', () => {
+    const rule = { type: 'group', join: 'AND', rules: [{ type: 'rule', field: 'finishedAt', operator: 'moreThanAgo', value: 30 }] };
+    expect(validateGroupRule(rule)).toBeDefined();
+  });
+
+  it.each([-1, 'not-a-number', undefined])('rejects an invalid moreThanAgo day count: %s', (value) => {
+    const rule = { type: 'group', join: 'AND', rules: [{ type: 'rule', field: 'finishedAt', operator: 'moreThanAgo', value }] };
+    expect(() => validateGroupRule(rule)).toThrow(BadRequestException);
+  });
+
+  it('validates moreThanAgo day counts for custom date fields', () => {
+    const valid = { type: 'group', join: 'AND', rules: [{ type: 'rule', field: customRuleField(7), operator: 'moreThanAgo', value: 14 }] };
+    const invalid = { type: 'group', join: 'AND', rules: [{ type: 'rule', field: customRuleField(7), operator: 'moreThanAgo', value: -1 }] };
+
+    expect(validateGroupRule(valid)).toBeDefined();
+    expect(() => validateGroupRule(invalid)).toThrow(BadRequestException);
   });
 
   it('does not apply date validation to non-date fields sharing the between operator', () => {

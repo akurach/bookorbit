@@ -222,7 +222,6 @@ describe('Kobo download identity in KOReader (e2e)', { timeout: 180_000 }, () =>
       expect(Date.now() - duplicateStart).toBeLessThan(1000);
       vi.spyOn(ctx.app.get(KepubConversionService), 'getKepubPath').mockResolvedValue(path);
       const startedAt = Date.now();
-      expect((await download()).statusCode).toBe(409);
       const response = await download(freshDevice.token);
       const durationMs = Date.now() - startedAt;
       expect(response.statusCode).toBe(200);
@@ -420,7 +419,10 @@ describe('Kobo download identity in KOReader (e2e)', { timeout: 180_000 }, () =>
     await ctx.db.insert(schema.koreaderBookHashLinks).values({ userId: user.userId, hash: deliveredHash, bookFileId: other.bookFileId });
     try {
       expect((await download()).statusCode).toBe(200);
-      expect((await match(deliveredHash)).matches).toEqual([{ hash: deliveredHash, bookId: other.bookId, bookFileId: other.bookFileId }]);
+      // The delivered bytes belong to the source book, so the linked file cannot place their positions.
+      expect((await match(deliveredHash)).matches).toEqual([
+        { hash: deliveredHash, bookId: other.bookId, bookFileId: other.bookFileId, positionCompatible: false },
+      ]);
       const response = await ctx.app.inject({
         method: 'PUT',
         url: '/api/v1/koreader/syncs/progress',
@@ -536,5 +538,32 @@ describe('Kobo download identity in KOReader (e2e)', { timeout: 180_000 }, () =>
     const after = await match(hash);
     expect(after.libraryVersion).not.toBe(before);
     expect(after.matches).toEqual([]);
+  });
+
+  it('replaces an offer its source can no longer rebuild instead of failing every download of the book', async () => {
+    const created = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/kobo/devices',
+      headers: authHeader(user.accessToken),
+      payload: { name: 'Stale offer device' },
+    });
+    const device = created.json() as { id: number; token: string };
+    const deliveries = ctx.app.get(KoboDeliveryService);
+    const conversion = vi.spyOn(ctx.app.get(KepubConversionService), 'getKepubPath').mockResolvedValue(downloadPath);
+    const stale = await deliveries.offer(user.userId, device.id, source.bookId);
+    const rebuilt = await createEpubFixture(ctx.fixture.rootPath, 'rebuilt.epub', { title: 'Rebuilt conversion', uid: `urn:uuid:${randomUUID()}` });
+    conversion.mockResolvedValue(rebuilt);
+    try {
+      const response = await download(device.token);
+      expect(response.statusCode).toBe(200);
+      expect(response.rawPayload).toEqual(await readFile(rebuilt));
+      const fresh = await deliveries.current(user.userId, device.id, source.bookId);
+      expect(fresh!.id).not.toBe(stale.id);
+      expect(fresh!.previousId).toBeNull();
+      expect((await deliveries.byId(user.userId, device.id, stale.id))!.current).toBe(false);
+      expect((await download(device.token)).rawPayload).toEqual(await readFile(rebuilt));
+    } finally {
+      conversion.mockResolvedValue(downloadPath);
+    }
   });
 });

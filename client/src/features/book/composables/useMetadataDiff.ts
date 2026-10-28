@@ -1,4 +1,5 @@
 import { computed, ref, shallowReactive, toRaw, toValue, type MaybeRefOrGetter } from 'vue'
+import { isKnownMetadataProviderKey } from '@bookorbit/types'
 import type {
   BookCommunityRating,
   BookMetadataLockField,
@@ -21,6 +22,7 @@ import {
   FIELD_DEFS,
   LIST_FIELD_KEYS,
   PROVIDER_ID_FIELD,
+  providerIdFieldFor,
   classifyField,
   classifyIdentifier,
   descriptionPlainText,
@@ -48,6 +50,7 @@ export {
   COMIC_KEY_MAP,
   FIELD_DEFS,
   PROVIDER_ID_FIELD,
+  providerIdFieldFor,
   getCandidateValueFrom,
   isComicDiffFieldKey,
   isProviderIdPatchField,
@@ -159,7 +162,6 @@ export interface MetadataPatch {
   hardcoverId?: string | null
   hardcoverEditionId?: string | null
   openLibraryId?: string | null
-  yandexBooksId?: string | null
   itunesId?: string | null
   audibleId?: string | null
   librofmId?: string | null
@@ -168,6 +170,9 @@ export interface MetadataPatch {
   ranobedbId?: string | null
   lubimyczytacId?: string | null
   aladinId?: string | null
+  /** External providers' ids, keyed by provider, linked from the candidates that contributed. */
+  externalProviderIds?: Partial<Record<string, string>>
+  externalProviderLinks?: Partial<Record<string, string>>
   comicMetadata?: ComicMetadataFields
   customMetadata?: CustomMetadataBookValueInput[]
 }
@@ -340,7 +345,7 @@ export function useMetadataDiff(input: MetadataDiffInput) {
       }
     }
 
-    const idField = PROVIDER_ID_FIELD[active.provider]
+    const idField = providerIdFieldFor(active.provider)
     const existing = existingProviderId(toValue(input.providerIds), active.provider)
     const offered = active.providerId ?? ''
     if (idField && (offered || existing)) {
@@ -652,9 +657,13 @@ export function useMetadataDiff(input: MetadataDiffInput) {
     // Link every provider that contributed a value, so a later fetch can find the same record.
     for (const candidate of contributors) {
       if (!candidate.providerId) continue
-      const idField = PROVIDER_ID_FIELD[candidate.provider]
+      const idField = providerIdFieldFor(candidate.provider)
       if (idField && formPatch[idField] === undefined && !lockedFieldSet.value.has(idField)) {
         formPatch[idField] = candidate.providerId
+      }
+      if (!idField && !isKnownMetadataProviderKey(candidate.provider)) {
+        formPatch.externalProviderIds = { ...formPatch.externalProviderIds, [candidate.provider]: candidate.providerId }
+        if (candidate.sourceUrl) formPatch.externalProviderLinks = { ...formPatch.externalProviderLinks, [candidate.provider]: candidate.sourceUrl }
       }
       if (
         candidate.provider === 'hardcover' &&
@@ -670,7 +679,7 @@ export function useMetadataDiff(input: MetadataDiffInput) {
     const ids = toValue(input.providerIds)
     if (ids) {
       for (const [provider, id] of Object.entries(ids)) {
-        const idField = PROVIDER_ID_FIELD[provider as MetadataProviderKey]
+        const idField = providerIdFieldFor(provider)
         if (idField && formPatch[idField] === undefined && id) {
           formPatch[idField] = id
         }

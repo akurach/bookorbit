@@ -1,4 +1,5 @@
 import type { MetadataProviderKey } from '@bookorbit/types'
+import { providerAppearance } from './provider-appearance'
 
 const PROVIDER_HEX: Record<string, string> = {
   google: '#34A853',
@@ -6,7 +7,6 @@ const PROVIDER_HEX: Record<string, string> = {
   amazon: '#FF9900',
   hardcover: '#7772ff',
   openLibrary: '#49a4ff',
-  yandexBooks: '#FC3F1D',
   itunes: '#ff4f5d',
   audible: '#FF8A00',
   audnexus: '#FF5ADD',
@@ -19,7 +19,8 @@ const PROVIDER_HEX: Record<string, string> = {
   auto: '#8B5CF6',
 }
 
-const DEFAULT_COLOR = 'oklch(0.5 0.01 0)'
+// An external provider that declares no colour gets a tuned theme token, legible in both themes.
+const DEFAULT_COLOR = 'var(--muted-foreground)'
 
 export const PROVIDER_SHORT_LABELS: Record<string, string> = {
   google: 'Google',
@@ -27,7 +28,6 @@ export const PROVIDER_SHORT_LABELS: Record<string, string> = {
   goodreads: 'Goodreads',
   hardcover: 'Hardcover',
   openLibrary: 'Open Lib',
-  yandexBooks: 'Yandex Books',
   itunes: 'iTunes',
   audible: 'Audible',
   audnexus: 'AudNexus',
@@ -40,8 +40,13 @@ export const PROVIDER_SHORT_LABELS: Record<string, string> = {
   auto: 'Fetched',
 }
 
+/** A compact name for chips: the built-in short form, else the provider's own label, else its key. */
+export function providerShortLabel(provider: string, label?: string | null): string {
+  return PROVIDER_SHORT_LABELS[provider] ?? label ?? provider
+}
+
 export function getProviderColor(provider: string): string {
-  return PROVIDER_HEX[provider] ?? DEFAULT_COLOR
+  return PROVIDER_HEX[provider] ?? providerAppearance(provider)?.color ?? DEFAULT_COLOR
 }
 
 function makeProviderPillStyle(color: string, bgPct: number, outlinePct: number): Record<string, string> {

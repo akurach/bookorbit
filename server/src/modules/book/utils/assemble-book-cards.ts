@@ -13,6 +13,7 @@ function normalizeLockedFields(raw: string[] | null | undefined): BookMetadataLo
 
 type BookRow = {
   id: number;
+  libraryId?: number;
   status: string;
   isFileless?: boolean;
   catalogMediaKind?: string | null;
@@ -250,6 +251,7 @@ export function assembleBookCards(
 
     return {
       id: row.id,
+      libraryId: row.libraryId,
       status: row.status,
       ...(row.isFileless ? { isFileless: true } : {}),
       ...(row.catalogMediaKind === 'ebook' || row.catalogMediaKind === 'audiobook' || row.catalogMediaKind === 'comic'

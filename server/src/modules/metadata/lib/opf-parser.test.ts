@@ -670,11 +670,6 @@ describe('parseOpf', () => {
       expect(r.itunesId).toBe('123456789');
     });
 
-    it('round-trips a case-sensitive Yandex Books identifier from OPF identifiers', () => {
-      const xml = epub2Opf(`<dc:identifier opf:scheme="YANDEXBOOKS">AbC123YandexBook</dc:identifier>`);
-      expect(parseOpf(xml).yandexBooksId).toBe('AbC123YandexBook');
-    });
-
     it('parses RanobeDB ID from opf:scheme attribute', () => {
       const xml = epub2Opf(`<dc:identifier opf:scheme="RANOBEDB">ranobe-1</dc:identifier>`);
       const r = parseOpf(xml);

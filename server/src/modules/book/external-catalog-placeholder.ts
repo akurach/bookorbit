@@ -4,6 +4,7 @@ import { getTableConfig, PgTable } from 'drizzle-orm/pg-core';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { ExternalCatalogItem } from '@bookorbit/types';
 import * as schema from '../../db/schema';
+import { externalCatalogProviderId } from './external-catalog-matching';
 
 const { books, bookMetadata, bookAuthors, authors, bookCovers, externalBookSources, userBookStatus, yandexBooksEntries, readingAttempts } = schema;
 type Transaction = Parameters<Parameters<NodePgDatabase<typeof schema>['transaction']>[0]>[0];
@@ -16,6 +17,7 @@ const explicitlyChecked = new Set<PgTable>([
   userBookStatus,
   yandexBooksEntries,
   readingAttempts,
+  schema.bookProviderIds,
 ]);
 
 // Fail closed for new features referencing books, including references that cascade on deletion.
@@ -53,7 +55,7 @@ export async function assertPristineExternalPlaceholder(
     language: item.language,
     pageCount: item.pageCount,
     isbn13: item.isbn?.replace(/[^0-9Xx]/g, '').slice(-13) || null,
-    yandexBooksId: item.mediaKind === 'ebook' ? item.externalId : null,
+    yandexBooksId: metadata.yandexBooksId === null ? null : item.mediaKind === 'ebook' ? item.externalId : null,
     abridged: false,
     lockedFields: [],
   };
@@ -76,6 +78,16 @@ export async function assertPristineExternalPlaceholder(
   if (
     JSON.stringify(authorRows.map((row) => row.name)) !==
     JSON.stringify([...new Set(item.authors.map((name) => name.trim()).filter(Boolean))].slice(0, 50))
+  )
+    reject();
+  const providerIds = await tx.select().from(schema.bookProviderIds).where(eq(schema.bookProviderIds.bookId, bookId)).for('update');
+  if (
+    providerIds.some(
+      (id) =>
+        id.provider !== 'yandexbooks' ||
+        id.externalId !== externalCatalogProviderId(item) ||
+        (id.sourceUrl !== item.sourceUrl && !(id.sourceUrl === null && metadata.yandexBooksId === item.externalId)),
+    )
   )
     reject();
   const covers = await tx.select().from(bookCovers).where(eq(bookCovers.bookId, bookId)).for('update');
@@ -104,6 +116,13 @@ export async function assertPristineExternalPlaceholder(
         migratedAttempt.deletedAt !== null ||
         migratedAttempt.externalProvider !== null ||
         migratedAttempt.externalId !== null ||
+        migratedAttempt.rating !== null ||
+        migratedAttempt.bookTitleSnapshot !== null ||
+        migratedAttempt.bookAuthorsSnapshot !== null ||
+        migratedAttempt.bookFormatSnapshot !== null ||
+        migratedAttempt.bookPageCountSnapshot !== null ||
+        migratedAttempt.bookLibraryIdSnapshot !== null ||
+        migratedAttempt.bookRemovedAt !== null ||
         migratedAttempt.createdAt.getTime() !== migratedAttempt.updatedAt.getTime()))
   )
     reject();

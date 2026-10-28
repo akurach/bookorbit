@@ -3,6 +3,7 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
+    "assets": ["scripts/legacy-yandex-schema-manifest.json"],
     "deleteOutDir": true,
     "builder": "swc",
     "typeCheck": true,

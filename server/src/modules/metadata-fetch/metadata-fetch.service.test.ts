@@ -303,6 +303,27 @@ describe('MetadataFetchService', () => {
     expect(audible.search).toHaveBeenNthCalledWith(3, expect.objectContaining({ title: 'Confessor', author: undefined, isbn: undefined }));
   });
 
+  it('keeps five ranked candidates per provider unless the search asks for more', async () => {
+    const books = Array.from({ length: 12 }, (_, index) => ({
+      ...candidate(MetadataProviderKey.OPEN_LIBRARY, `ol${index}`, `Discworld ${index}`),
+      authors: ['Terry Pratchett'],
+    }));
+    const openLibrary: MetadataProvider = {
+      key: MetadataProviderKey.OPEN_LIBRARY,
+      label: 'OpenLibrary',
+      identifiable: false,
+      search: vi.fn().mockResolvedValue(books),
+    };
+    registry.select.mockReturnValue([openLibrary]);
+
+    const matching = await firstValueFrom(service.search({ author: 'Terry Pratchett' }).pipe(candidatesOnly(), toArray()));
+    const browsing = await firstValueFrom(service.search({ author: 'Terry Pratchett', resultsPerProvider: 20 }).pipe(candidatesOnly(), toArray()));
+
+    expect(matching).toHaveLength(5);
+    expect(browsing).toHaveLength(12);
+    expect(openLibrary.search).toHaveBeenLastCalledWith(expect.objectContaining({ resultsPerProvider: 20 }));
+  });
+
   it('does not use title-only fallback for capped automated searches', async () => {
     const audible: MetadataProvider = {
       key: MetadataProviderKey.AUDIBLE,
@@ -752,7 +773,6 @@ describe('MetadataFetchService', () => {
       ranobedbId: null,
       lubimyczytacId: 'lc-1',
       aladinId: null,
-      yandexBooksId: 'AbC123YandexBook',
     });
     metadataFetchRepository.hasLibraryAccess.mockResolvedValue(true);
 
@@ -772,7 +792,6 @@ describe('MetadataFetchService', () => {
       [MetadataProviderKey.RANOBEDB]: undefined,
       [MetadataProviderKey.LUBIMYCZYTAC]: 'lc-1',
       [MetadataProviderKey.ALADIN]: undefined,
-      [MetadataProviderKey.YANDEX_BOOKS]: 'AbC123YandexBook',
     });
     expect(metadataFetchRepository.hasLibraryAccess).toHaveBeenCalledWith(5, 7);
   });
@@ -793,7 +812,6 @@ describe('MetadataFetchService', () => {
       ranobedbId: null,
       lubimyczytacId: null,
       aladinId: null,
-      yandexBooksId: null,
     });
 
     await expect(service.getStoredProviderIds(99, makeUser({ isSuperuser: true }))).resolves.toEqual({
@@ -810,7 +828,6 @@ describe('MetadataFetchService', () => {
       [MetadataProviderKey.RANOBEDB]: undefined,
       [MetadataProviderKey.LUBIMYCZYTAC]: undefined,
       [MetadataProviderKey.ALADIN]: undefined,
-      [MetadataProviderKey.YANDEX_BOOKS]: undefined,
     });
     expect(metadataFetchRepository.hasLibraryAccess).not.toHaveBeenCalled();
   });

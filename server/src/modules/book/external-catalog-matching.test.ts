@@ -5,6 +5,7 @@ import type { ExternalCatalogItem } from '@bookorbit/types';
 import {
   canonicalExternalCatalogIsbn,
   externalCatalogTitleSearchKind,
+  externalCatalogProviderId,
   isSafeExternalCatalogTitleMatch,
   normalizeExternalCatalogAuthors,
   normalizeExternalCatalogTitle,
@@ -40,6 +41,7 @@ const candidate = (changes: Partial<ExternalCatalogMatchCandidate> = {}): Extern
   isbn10: null,
   isbn13: '9780306406157',
   yandexBooksId: null,
+  providerId: null,
   catalogMediaKind: null,
   format: 'epub',
   authors: ['Юдковский'],
@@ -69,6 +71,14 @@ describe('external catalog matching keys', () => {
   it('uses exact indexed title lookup for short titles instead of skipping matching', () => {
     expect(externalCatalogTitleSearchKind('It')).toBe('exact');
     expect(externalCatalogTitleSearchKind('Оно')).toBe('probe');
+  });
+
+  it('uses case-sensitive native identifiers for each media kind', () => {
+    expect(externalCatalogProviderId({ ...item, externalId: 'AbC', mediaKind: 'ebook' })).toBe('book-AbC');
+    expect(externalCatalogProviderId({ ...item, externalId: 'AbC', mediaKind: 'audiobook' })).toBe('audiobook-AbC');
+    expect(externalCatalogProviderId({ ...item, externalId: 'AbC', mediaKind: 'comic' })).toBe('comicbook-AbC');
+    expect(isSafeExternalCatalogTitleMatch(candidate({ providerId: 'book-Edition-1' }), item)).toBe(false);
+    expect(isSafeExternalCatalogTitleMatch(candidate({ providerId: 'book-edition-1' }), item)).toBe(true);
   });
 
   it('rejects incompatible media, language, edition, and author candidates', () => {

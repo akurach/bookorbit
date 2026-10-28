@@ -8,15 +8,18 @@ import { LoggerModule } from 'nestjs-pino';
 import {
   appConfig,
   audiolessEpubConfig,
+  audioToolsConfig,
   authConfig,
   bookRequestConfig,
   coverSlotsConfig,
   dbConfig,
+  djvuConfig,
   emailConfig,
   fileWriteConfig,
   migrationConfig,
   oidcRuntimeConfig,
   podcastConfig,
+  readAloudConfig,
   storageConfig,
   yandexBooksConfig,
 } from './config/config';
@@ -34,6 +37,7 @@ import { AppSettingsModule } from './modules/app-settings/app-settings.module';
 import { CollectionModule } from './modules/collection/collection.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CbzModule } from './modules/reader/cbz/cbz.module';
+import { DjvuModule } from './modules/reader/djvu/djvu.module';
 import { BookmarkModule } from './modules/bookmark/bookmark.module';
 import { BookJournalModule } from './modules/book-journal/book-journal.module';
 import { NotebookModule } from './modules/notebook/notebook.module';
@@ -47,6 +51,7 @@ import { OpdsModule } from './modules/opds/opds.module';
 import { PathModule } from './modules/path/path.module';
 import { MetadataFetchModule } from './modules/metadata-fetch/metadata-fetch.module';
 import { MetadataPreferencesModule } from './modules/metadata-preferences/metadata-preferences.module';
+import { MetadataHttpProviderModule } from './modules/metadata-http-provider/metadata-http-provider.module';
 import { MetadataModule } from './modules/metadata/metadata.module';
 import { NarratorModule } from './modules/narrator/narrator.module';
 import { ReaderPreferencesModule } from './modules/reader-preferences/reader-preferences.module';
@@ -66,6 +71,7 @@ import { BookMetadataFetchModule } from './modules/book-metadata-fetch/book-meta
 import { MetadataScoreModule } from './modules/metadata-score/metadata-score.module';
 import { StatisticsModule } from './modules/statistics/statistics.module';
 import { UserStatisticsModule } from './modules/user-statistics/user-statistics.module';
+import { ReadingHistoryModule } from './modules/reading-history/reading-history.module';
 import { ReadingSessionModule } from './modules/reading-session/reading-session.module';
 import { ReadingStateModule } from './modules/reading-state/reading-state.module';
 import { UserBookStatusModule } from './modules/user-book-status/user-book-status.module';
@@ -92,10 +98,13 @@ import { BookDuplicatesModule } from './modules/book-duplicates/book-duplicates.
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { BookMoveModule } from './modules/book-move/book-move.module';
 import { AudiobookModule } from './modules/audiobook/audiobook.module';
+import { ChapterEditorModule } from './modules/chapter-editor/chapter-editor.module';
+import { ChapterHealthModule } from './modules/chapter-health/chapter-health.module';
 import { TtsModule } from './modules/tts/tts.module';
 import { SearchModule } from './modules/search/search.module';
 import { WatchDownloadModule } from './modules/watch-download/watch-download.module';
 import { PodcastModule } from './modules/podcast/podcast.module';
+import { ReadAloudModule } from './modules/read-aloud/read-aloud.module';
 
 @Module({
   imports: [
@@ -117,6 +126,9 @@ import { PodcastModule } from './modules/podcast/podcast.module';
         oidcRuntimeConfig,
         podcastConfig,
         audiolessEpubConfig,
+        djvuConfig,
+        readAloudConfig,
+        audioToolsConfig,
       ],
     }),
     ScheduleModule.forRoot(),
@@ -143,6 +155,8 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     PathModule,
     BookModule,
     AudiobookModule,
+    ChapterEditorModule,
+    ChapterHealthModule,
     CatalogModule,
     CoverModule,
     CollectionModule,
@@ -153,6 +167,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     UploadModule,
     MetadataFetchModule,
     MetadataPreferencesModule,
+    MetadataHttpProviderModule,
     CustomMetadataModule,
     CustomIconModule,
     RecommendationModule,
@@ -165,6 +180,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     DashboardModule,
     HealthModule,
     CbzModule,
+    DjvuModule,
     ReaderPreferencesModule,
     UserPreferencesModule,
     EpubModule,
@@ -174,6 +190,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     MetadataScoreModule,
     StatisticsModule,
     UserStatisticsModule,
+    ReadingHistoryModule,
     ReadingSessionModule,
     ReadingStateModule,
     UserBookStatusModule,
@@ -202,6 +219,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     SearchModule,
     WatchDownloadModule,
     PodcastModule,
+    ReadAloudModule,
   ],
   providers: [{ provide: APP_INTERCEPTOR, useClass: AuditInterceptor }, ...GLOBAL_GUARDS.map((useClass) => ({ provide: APP_GUARD, useClass }))],
 })

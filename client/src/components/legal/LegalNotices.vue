@@ -8,6 +8,7 @@ const { t } = useI18n()
 const { open, closeLegalNotices, handleOpenChange } = useLegalNotices()
 
 const PROJECT_URL = 'https://github.com/bookorbit/bookorbit'
+const SOURCE_URL = import.meta.env.VITE_SOURCE_CODE_URL || PROJECT_URL
 const LICENSE_URL = `${PROJECT_URL}/blob/main/LICENSE`
 const ADDITIONAL_TERMS_URL = `${PROJECT_URL}/blob/main/ADDITIONAL_TERMS.md`
 </script>
@@ -60,7 +61,7 @@ const ADDITIONAL_TERMS_URL = `${PROJECT_URL}/blob/main/ADDITIONAL_TERMS.md`
 
           <div class="grid gap-2 sm:grid-cols-3">
             <a
-              :href="PROJECT_URL"
+              :href="SOURCE_URL"
               target="_blank"
               rel="noopener noreferrer"
               class="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 font-medium text-foreground outline-hidden hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"

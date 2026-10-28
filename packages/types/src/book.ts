@@ -1,6 +1,6 @@
 import type { BookCommunityRating, MetadataFetchDiagnostics, MetadataProviderKey, MetadataSeriesMembership } from "./metadata-fetch";
 import type { BookMetadataLockField } from "./metadata-lock";
-import type { AudiobookChapter, NarratorRef } from "./audiobook";
+import type { AudiobookChapter, AudiobookChapterSource, NarratorRef } from "./audiobook";
 import type { ComicMetadataFields } from "./metadata-fetch";
 import type { BookFileWriteField, WriteResult } from "./file-write";
 import type { CustomMetadataBookValue } from "./custom-metadata";
@@ -9,11 +9,16 @@ import { DEFAULT_FORMAT_PRIORITY } from "./library";
 import type { SeriesIndex } from "./series-index";
 import type { EpubMediaOverlayCapability } from "./epub";
 import type { ExternalBookReading } from "./yandex-books";
+import { READ_ALONG_FORMAT_PRIORITY } from "./format-priority";
 
 // Derived rather than duplicated: these two lists describe the same set of formats,
 // and maintaining them separately let BOOK_FORMATS fall behind on azw and kepub.
 export const BOOK_FORMATS = DEFAULT_FORMAT_PRIORITY;
 export type BookFormat = (typeof BOOK_FORMATS)[number];
+
+/** Values accepted by the format filter. Read-along is an edition key, not a physical file format. */
+export const BOOK_FILTER_FORMATS = [...BOOK_FORMATS, READ_ALONG_FORMAT_PRIORITY] as const;
+export type BookFilterFormat = (typeof BOOK_FILTER_FORMATS)[number];
 
 /** Exported as an ordered list too, so a form offering these cannot drift from what matches them. */
 export const AUDIO_FORMAT_LIST = ["m4b", "mp3", "m4a", "opus", "ogg", "flac"] as const;
@@ -73,6 +78,8 @@ export type ReadingAttempt = {
   origin: ReadingAttemptOrigin;
   externalProvider: string | null;
   externalId: string | null;
+  /** This read's own stars; null when unrated. */
+  rating: number | null;
   totalSessions: number;
   totalSeconds: number;
   createdAt: string;
@@ -167,7 +174,8 @@ export function getBookMediaKind(format: string | null | undefined): BookMediaKi
 }
 
 export function getBookMediaProfile(files: readonly BookMediaFile[]): BookMediaProfile {
-  const mediaKinds = files.map((file) => getBookMediaKind(file.format));
+  // Covers and sidecars such as a folder image or an .nfo fall through getBookMediaKind as "ebook".
+  const mediaKinds = files.filter((file) => file.role === "content" || file.role === "primary").map((file) => getBookMediaKind(file.format));
   return {
     primaryMediaKind: getBookMediaKind(getPrimaryBookFile(files)?.format),
     hasEbook: mediaKinds.includes("ebook"),
@@ -187,6 +195,7 @@ export type BookSeriesMembership = {
 
 export type BookCard = {
   id: number;
+  libraryId?: number;
   status: string;
   isFileless?: boolean;
   catalogMediaKind?: ConcreteBookMediaKind | null;
@@ -247,6 +256,9 @@ export type AudioMetadata = {
   durationSeconds: number | null;
   abridged: boolean;
   chapters: AudiobookChapter[] | null;
+  chaptersSource?: AudiobookChapterSource | null;
+  /** When the stored chapter list last changed; null for a derived or legacy list. */
+  chaptersUpdatedAt?: string | null;
 };
 
 export type ReadAloudProgressSyncMode = "auto" | "disabled";
@@ -330,6 +342,12 @@ export type BookDetail = {
   coverVersion: string;
   hardcoverEditionId: string | null;
   providerIds: ProviderIds;
+  /**
+   * Record links for external providers' ids, keyed like `providerIds`: the page the id was applied
+   * from, or the provider's own URL template. Built-in links stay with the client's templates.
+   * Absent on older servers.
+   */
+  providerLinks?: Partial<Record<string, string>>;
   authors: { id: number; name: string; sortName: string | null }[];
   genres: string[];
   tags: string[];
@@ -393,7 +411,8 @@ export type BookMetadataRefreshPreviewFields = {
   ranobedbId?: string | null;
   lubimyczytacId?: string | null;
   aladinId?: string | null;
-  yandexBooksId?: string | null;
+  /** Ids from external providers, keyed by provider. Absent on older servers. */
+  externalProviderIds?: Partial<Record<string, string | null>>;
   audioMetadata?: {
     narrators?: string[];
     durationSeconds?: number | null;
@@ -445,6 +464,23 @@ export type BooksPage = {
   size: number;
 };
 
+export type BookFormatFacet = {
+  format: BookFilterFormat;
+  count: number;
+};
+
+/**
+ * Counts for a library's browse header, from the same query as its listing. `total` and the
+ * format counts are books, never collapsed-series cards. A format counts every book holding a
+ * file in it, which is how the `format` filter matches, and it is counted without the root-level
+ * format rule so picking one format still shows the others.
+ */
+export type LibraryBookFacets = {
+  total: number;
+  libraryTotal: number;
+  formats: BookFormatFacet[];
+};
+
 export type BookRecommendation = {
   id: number;
   title: string | null;
@@ -486,7 +522,5 @@ export type CoverSearchResult = {
   source: string;
 };
 
-export type CoverSearchResponse = {
-  results: CoverSearchResult[];
-  total: number;
-};
+/** `GET /books/cover/search` answers with a bare array of results, not an envelope. */
+export type CoverSearchResponse = CoverSearchResult[];

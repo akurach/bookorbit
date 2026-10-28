@@ -13,6 +13,9 @@ function createInsertChain() {
 function createDb() {
   const insertChain = createInsertChain();
   const txInsertChain = createInsertChain();
+  const txUpdateChain = { set: vi.fn().mockReturnThis(), where: vi.fn().mockResolvedValue(undefined) };
+  /** Rows answered by the "does a book hold this provider's id" probe. */
+  const storedIdRows = vi.fn().mockResolvedValue([]);
 
   const tx = {
     execute: vi.fn().mockResolvedValue(undefined),
@@ -22,6 +25,7 @@ function createDb() {
       },
     },
     insert: vi.fn().mockReturnValue(txInsertChain),
+    update: vi.fn().mockReturnValue(txUpdateChain),
   };
 
   return {
@@ -31,10 +35,13 @@ function createDb() {
       },
     },
     insert: vi.fn().mockReturnValue(insertChain),
+    select: vi.fn(() => ({ from: () => ({ where: () => ({ limit: storedIdRows }) }) })),
     transaction: vi.fn((cb) => Promise.resolve(cb(tx))),
     __insertChain: insertChain,
     __tx: tx,
     __txInsertChain: txInsertChain,
+    __txUpdateChain: txUpdateChain,
+    __storedIdRows: storedIdRows,
   };
 }
 
@@ -75,9 +82,6 @@ describe('ProviderConfigService', () => {
       comicvine: { enabled: false, apiKey: '' },
       ranobedb: { enabled: false },
       kobo: { enabled: false, country: 'us', language: 'en' },
-      lubimyczytac: { enabled: false },
-      aladin: { enabled: false, ttbKey: '' },
-      yandexBooks: { enabled: false },
     });
   });
 
@@ -371,9 +375,6 @@ describe('ProviderConfigService', () => {
       comicvine: { enabled: false, apiKey: '' },
       ranobedb: { enabled: false },
       kobo: { enabled: false, country: 'us', language: 'en' },
-      lubimyczytac: { enabled: false },
-      aladin: { enabled: false, ttbKey: '' },
-      yandexBooks: { enabled: false },
     });
 
     expect(statuses.map((s) => s.key)).toEqual([
@@ -390,9 +391,19 @@ describe('ProviderConfigService', () => {
       MetadataProviderKey.RANOBEDB,
       MetadataProviderKey.KOBO,
       MetadataProviderKey.LUBIMYCZYTAC,
-      MetadataProviderKey.YANDEX_BOOKS,
       MetadataProviderKey.ALADIN,
     ]);
+    expect(statuses.find((s) => s.key === MetadataProviderKey.LUBIMYCZYTAC)).toMatchObject({
+      source: 'external',
+      enabled: false,
+      movedOut: { image: 'ghcr.io/bookorbit/lubimyczytac-provider', inUse: false },
+    });
+    // Aladin closed its API, so there is no image to point at.
+    expect(statuses.find((s) => s.key === MetadataProviderKey.ALADIN)).toMatchObject({
+      enabled: false,
+      hint: 'Aladin closed the service BookOrbit used.',
+      movedOut: { image: null, inUse: false },
+    });
     expect(statuses.find((s) => s.key === MetadataProviderKey.GOOGLE)?.configured).toBe(false);
     expect(statuses.find((s) => s.key === MetadataProviderKey.GOOGLE)?.hint).toContain('API key required');
     expect(statuses.find((s) => s.key === MetadataProviderKey.AMAZON)?.hint).toContain('Cookie recommended');
@@ -401,6 +412,64 @@ describe('ProviderConfigService', () => {
     expect(statuses.find((s) => s.key === MetadataProviderKey.COMICVINE)?.configured).toBe(false);
     expect(statuses.find((s) => s.key === MetadataProviderKey.COMICVINE)?.hint).toContain('API key required');
     expect(statuses.find((s) => s.key === MetadataProviderKey.GOODREADS)?.enabled).toBe(false);
+  });
+
+  it('says a moved-out source is in use when a field rule names it or a book holds its id', async () => {
+    const preferences = { providersNamedInRules: vi.fn().mockResolvedValue(new Set(['aladin'])) };
+    service = new ProviderConfigService(db as never, undefined, preferences as never);
+    db.__storedIdRows.mockResolvedValueOnce([{ bookId: 7 }]);
+
+    const statuses = await service.getProviderStatuses(await service.getConfig());
+
+    expect(statuses.find((s) => s.key === MetadataProviderKey.LUBIMYCZYTAC)?.movedOut?.inUse).toBe(true);
+    expect(statuses.find((s) => s.key === MetadataProviderKey.ALADIN)?.movedOut?.inUse).toBe(true);
+    // Aladin was settled by the field rule, so only LubimyCzytac needed the id probe.
+    expect(db.__storedIdRows).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not count the stored ids of a closed source, which need nothing done', async () => {
+    const preferences = { providersNamedInRules: vi.fn().mockResolvedValue(new Set()) };
+    service = new ProviderConfigService(db as never, undefined, preferences as never);
+    db.__storedIdRows.mockResolvedValue([{ bookId: 7 }]);
+
+    const statuses = await service.getProviderStatuses(await service.getConfig());
+
+    expect(statuses.find((s) => s.key === MetadataProviderKey.LUBIMYCZYTAC)?.movedOut?.inUse).toBe(true);
+    expect(statuses.find((s) => s.key === MetadataProviderKey.ALADIN)?.movedOut?.inUse).toBe(false);
+    expect(db.__storedIdRows).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists a moved-out source only until it is registered again', async () => {
+    const httpProviders = {
+      registered: () => [{ key: 'lubimyczytac', label: 'LubimyCzytac', enabled: true, status: 'ok', info: { supportedFields: ['title'] } }],
+    };
+    service = new ProviderConfigService(db as never, httpProviders as never);
+
+    const statuses = await service.getProviderStatuses(await service.getConfig());
+
+    expect(statuses.filter((s) => s.movedOut).map((s) => s.key)).toEqual([MetadataProviderKey.ALADIN]);
+  });
+
+  it('deletes the stored settings of sources that moved out, Aladin key included', async () => {
+    db.__tx.query.appSettings.findFirst.mockResolvedValue({
+      value: JSON.stringify({
+        google: { enabled: true, apiKey: 'g' },
+        aladin: { enabled: true, ttbKey: 'ttb-secret' },
+        lubimyczytac: { enabled: true },
+      }),
+    });
+
+    await service.onModuleInit();
+
+    expect(db.__txUpdateChain.set).toHaveBeenCalledWith({ value: JSON.stringify({ google: { enabled: true, apiKey: 'g' } }) });
+  });
+
+  it('leaves stored settings alone when no moved-out source is in them', async () => {
+    db.__tx.query.appSettings.findFirst.mockResolvedValue({ value: JSON.stringify({ google: { enabled: true, apiKey: 'g' } }) });
+
+    await service.onModuleInit();
+
+    expect(db.__tx.update).not.toHaveBeenCalled();
   });
 
   it('reports hardcover as configured when api key is present', async () => {
@@ -417,9 +486,6 @@ describe('ProviderConfigService', () => {
       comicvine: { enabled: false, apiKey: '' },
       ranobedb: { enabled: false },
       kobo: { enabled: false, country: 'us', language: 'en' },
-      lubimyczytac: { enabled: false },
-      aladin: { enabled: false, ttbKey: '' },
-      yandexBooks: { enabled: false },
     });
 
     expect(statuses.find((s) => s.key === MetadataProviderKey.HARDCOVER)?.configured).toBe(true);
@@ -534,53 +600,6 @@ describe('ProviderConfigService', () => {
     const requestUrl = fetchMock.mock.calls[0]?.[0];
     expect(requestUrl).toBeInstanceOf(URL);
     expect((requestUrl as URL).hostname).toBe('www.amazon.com');
-  });
-
-  it('enables Yandex Books without credentials and preserves stored provider settings', async () => {
-    db.__tx.query.appSettings.findFirst.mockResolvedValue({ value: JSON.stringify({ openLibrary: { enabled: false } }) });
-
-    const updated = await service.updateConfig({ yandexBooks: { enabled: true } });
-
-    expect(updated.yandexBooks).toEqual({ enabled: true });
-    expect(updated.openLibrary.enabled).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await service.getProviderStatuses(updated)).toContainEqual(
-      expect.objectContaining({ key: MetadataProviderKey.YANDEX_BOOKS, enabled: true, configured: true }),
-    );
-  });
-
-  it('tests the Yandex Books public catalog without sending credentials or enabling it', async () => {
-    db.query.appSettings.findFirst.mockResolvedValue(undefined);
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ book: { uuid: 'mqK3FFjg', title: 'A book' } })));
-
-    expect(await service.testProvider(MetadataProviderKey.YANDEX_BOOKS)).toMatchObject({ ok: true, status: 'success' });
-    const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api.bookmate.yandex.net/api/v5/books/mqK3FFjg');
-    expect(options.headers).not.toHaveProperty('Auth-Token');
-    expect(options.signal).toBeInstanceOf(AbortSignal);
-    expect(db.insert).not.toHaveBeenCalled();
-    expect(db.transaction).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    new Response('{}'),
-    new Response(JSON.stringify({ book: { uuid: 'mqK3FFjg' } })),
-    new Response('<html>challenge</html>'),
-    new Response('', { status: 429 }),
-  ])('does not report malformed or failed Yandex Books responses as connected', async (response) => {
-    db.query.appSettings.findFirst.mockResolvedValue(undefined);
-    fetchMock.mockResolvedValue(response);
-
-    expect(await service.testProvider(MetadataProviderKey.YANDEX_BOOKS)).toMatchObject({ ok: false, status: 'fail' });
-  });
-
-  it('reports Yandex Books timeouts without exposing transport details', async () => {
-    db.query.appSettings.findFirst.mockResolvedValue(undefined);
-    fetchMock.mockRejectedValue(new Error('transport implementation detail'));
-
-    const result = await service.testProvider(MetadataProviderKey.YANDEX_BOOKS);
-    expect(result).toMatchObject({ ok: false, status: 'fail' });
-    expect(result.message).not.toContain('transport implementation detail');
   });
 
   it('rejects unsupported provider test requests', async () => {

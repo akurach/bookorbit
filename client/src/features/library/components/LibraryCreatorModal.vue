@@ -32,6 +32,7 @@ import { useModal } from '@/composables/useModal'
 import { formatNumber } from '@/i18n/formatters'
 import { api } from '@/lib/api'
 import { useLibraryAddedAt } from '../composables/useLibraryAddedAt'
+import { useRegexMetadataReapply } from '../composables/useRegexMetadataReapply'
 import { LIBRARY_ACCESS_KEY, useLibraryAccess } from '../composables/useLibraryAccess'
 import { useLibraryCreator, type LibraryCreatorSectionId } from '../composables/useLibraryCreator'
 import { writtenKindCount } from '../utils/library-summary'
@@ -92,6 +93,9 @@ const { form, mode, editingLibraryId, loading, folderChecks, stats, error, valid
 const access = useLibraryAccess(editingLibraryId)
 provide(LIBRARY_ACCESS_KEY, access)
 const addedAtRecompute = useLibraryAddedAt(editingLibraryId)
+const regexReapply = useRegexMetadataReapply(editingLibraryId)
+/** Custom path rules the Series folders layout replaced in this session, kept outside the saved form. */
+const replacedRegexMetadata = ref<Library['regexMetadata']>(null)
 
 /** Below this the sheet cannot carry the rail, so sections become a drill-in list. */
 const isWide = useMediaQuery('(min-width: 768px)')
@@ -183,6 +187,8 @@ function summaryFor(id: LibraryCreatorSectionId): string {
         ? t('library.creator.summary.scannerAll', { mode: modeLabel.value })
         : t('library.creator.summary.scannerSome', { mode: modeLabel.value, count: form.allowedFormats.length })
     case 'metadata':
+      if (form.regexMetadata && form.metadataPrecedence[0] === 'regex')
+        return t('library.creator.metadata.regex.summary', { format: leadFormat.value })
       return form.metadataPrecedence[0] === 'opfFile'
         ? t('library.creator.summary.metadataOpf', { format: leadFormat.value })
         : t('library.creator.summary.metadataFile', { format: leadFormat.value })
@@ -270,6 +276,11 @@ const sectionProps = computed(() => ({
     libraryType: form.type,
     checks: folderChecks.value,
     stats: stats.value,
+    libraryName: form.name,
+    libraryIcon: form.icon,
+    libraryId: editingLibraryId.value,
+    organizationMode: form.organizationMode,
+    organizationModeLocked: !creating.value,
   },
   scanner: {
     organizationMode: form.organizationMode,
@@ -282,12 +293,22 @@ const sectionProps = computed(() => ({
     recomputeJob: addedAtRecompute.job.value,
     recomputeErrorKey: addedAtRecompute.errorKey.value,
     excludePatterns: form.excludePatterns,
+    regexMetadata: form.regexMetadata ?? null,
+    replacedRegexMetadata: replacedRegexMetadata.value,
   },
   metadata: {
     metadataPrecedence: form.metadataPrecedence,
+    regexMetadata: form.regexMetadata ?? null,
+    libraryId: creator.editingLibraryId.value ?? undefined,
     formatPriority: form.formatPriority,
     allowedFormats: form.allowedFormats,
     formatCounts: stats.value?.formatCounts ?? null,
+    organizationMode: form.organizationMode,
+    canReapplyRules: !creating.value,
+    storedRegexMetadata: creator.storedRegexMetadata.value ?? null,
+    reapplyingRules: regexReapply.running.value,
+    reapplyJob: regexReapply.job.value,
+    reapplyErrorKey: regexReapply.errorKey.value,
   },
   reading: {
     readingThreshold: form.readingThreshold,
@@ -475,6 +496,10 @@ function handleRecomputeAddedAt() {
   if (!addedAtRecompute.running.value) void addedAtRecompute.start()
 }
 
+function handleReapplyRegexMetadata() {
+  if (!regexReapply.running.value) void regexReapply.start()
+}
+
 function handleWatchUpdate(value: boolean) {
   if (podcast.value) form.watchLocalFolders = value
   else form.watch = value
@@ -494,7 +519,10 @@ const sectionListeners = {
   'update:organizationMode': (value: OrganizationMode) => (form.organizationMode = value),
   'update:addedAtSource': (value: Library['addedAtSource']) => (form.addedAtSource = value),
   recompute: handleRecomputeAddedAt,
+  reapply: handleReapplyRegexMetadata,
   check: handleCheckFolders,
+  'update:regexMetadata': (value: Library['regexMetadata']) => (form.regexMetadata = value),
+  'update:replacedRegexMetadata': (value: Library['regexMetadata']) => (replacedRegexMetadata.value = value),
   'update:metadataPrecedence': (value: string[]) => (form.metadataPrecedence = value),
   'update:formatPriority': (value: string[]) => (form.formatPriority = value),
   'update:allowedFormats': (value: string[]) => (form.allowedFormats = value),
@@ -522,6 +550,7 @@ const sectionListeners = {
   'update:fileWriteReadAlongEnabled': (value: boolean) => (form.fileWriteReadAlongEnabled = value),
   'update:fileWriteReadAlongMaxFileSizeMb': (value: number) => (form.fileWriteReadAlongMaxFileSizeMb = value),
   'update:pickerOpen': handleNestedModalChange,
+  'update:regexOpen': handleNestedModalChange,
 }
 
 useModal({

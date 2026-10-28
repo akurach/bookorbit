@@ -48,7 +48,6 @@ describe('BookDock metadata normalization', () => {
       ranobedbId: 'ranobedb-id',
       lubimyczytacId: 'lubimyczytac-id',
       aladinId: 'aladin-id',
-      yandexBooksId: 'YandexBook123',
       comicMetadata: { issueNumber: '1', pencillers: ['Artist'], unknown: true },
       unknown: 'remove me',
     };
@@ -89,7 +88,6 @@ describe('BookDock metadata normalization', () => {
       ranobedbId: 'ranobedb-id',
       lubimyczytacId: 'lubimyczytac-id',
       aladinId: 'aladin-id',
-      yandexBooksId: 'YandexBook123',
       comicMetadata: { issueNumber: '1', pencillers: ['Artist'] },
     };
 

@@ -1,7 +1,7 @@
 import { realignAudioTrackOrder } from '../../db/audio-track-order';
-import { deleteBookFilesWithHashInvalidation, deleteBooksWithHashInvalidation } from '../../db/book-file-hash-history';
+import { recordBookFileHashHistory, deleteBookFilesWithHashInvalidation, deleteBooksWithHashInvalidation } from '../../db/book-file-hash-history';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { DB } from '../../db';
@@ -110,6 +110,7 @@ export class ScannerRepository {
         allowedFormats: libraries.allowedFormats,
         formatPriority: libraries.formatPriority,
         metadataPrecedence: libraries.metadataPrecedence,
+        regexMetadata: libraries.regexMetadata,
         excludePatterns: libraries.excludePatterns,
         organizationMode: libraries.organizationMode,
         addedAtSource: libraries.addedAtSource,
@@ -163,6 +164,38 @@ export class ScannerRepository {
       })
       .from(books)
       .where(eq(books.libraryFolderId, libraryFolderId));
+  }
+
+  /** Books filed under a library folder but located at `folderPath`, with their content files. */
+  async findBooksAtFolderPath(libraryFolderId: number, folderPath: string) {
+    const rows = await this.db
+      .select({ id: books.id, libraryId: books.libraryId, primaryFileId: books.primaryFileId })
+      .from(books)
+      .where(and(eq(books.libraryFolderId, libraryFolderId), eq(books.folderPath, folderPath)));
+    if (rows.length === 0) return [];
+    const files = await this.db
+      .select({ id: bookFiles.id, bookId: bookFiles.bookId, absolutePath: bookFiles.absolutePath })
+      .from(bookFiles)
+      .where(
+        and(
+          inArray(
+            bookFiles.bookId,
+            rows.map((row) => row.id),
+          ),
+          eq(bookFiles.role, 'content'),
+        ),
+      )
+      .orderBy(asc(bookFiles.sortOrder), asc(bookFiles.id));
+    return rows.map((row) => ({ ...row, contentFiles: files.filter((file) => file.bookId === row.id) }));
+  }
+
+  async bookExistsAtFolderPath(libraryId: number, folderPath: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: books.id })
+      .from(books)
+      .where(and(eq(books.libraryId, libraryId), eq(books.folderPath, folderPath)))
+      .limit(1);
+    return !!row;
   }
 
   async findPrimaryBookFilesByLibrary(libraryId: number) {
@@ -260,6 +293,7 @@ export class ScannerRepository {
         mtime: bookFiles.mtime,
         fileHash: bookFiles.fileHash,
         format: bookFiles.format,
+        role: bookFiles.role,
         sortOrder: bookFiles.sortOrder,
         durationSeconds: bookFiles.durationSeconds,
         mediaOverlayAvailable: bookFiles.mediaOverlayAvailable,
@@ -291,12 +325,41 @@ export class ScannerRepository {
   }
 
   async updateBookFile(id: number, data: Partial<typeof bookFiles.$inferInsert>) {
-    const [file] = await this.db
-      .update(bookFiles)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(bookFiles.id, id))
-      .returning();
-    return file;
+    return this.db.transaction(async (tx) => {
+      if (data.fileHash) {
+        const [previous] = await tx.select({ fileHash: bookFiles.fileHash }).from(bookFiles).where(eq(bookFiles.id, id)).for('update');
+        if (previous?.fileHash && previous.fileHash !== data.fileHash) {
+          await recordBookFileHashHistory(tx, id, previous.fileHash, 'rescan');
+          // Positions from the replaced bytes cannot be interpreted in the new DOM.
+          await tx
+            .update(schema.readingProgress)
+            .set({
+              cfi: null,
+              koreaderProgress: null,
+              pageNumber: null,
+              positionSeconds: null,
+              mediaOverlayFragment: null,
+              mediaOverlaySectionIndex: null,
+              updatedAt: sql`${schema.readingProgress.updatedAt}`,
+            })
+            .where(eq(schema.readingProgress.bookFileId, id));
+          await tx
+            .update(koreaderDeviceProgress)
+            .set({
+              progress: null,
+              chapterIndex: null,
+              updatedAt: sql`${koreaderDeviceProgress.updatedAt}`,
+            })
+            .where(eq(koreaderDeviceProgress.bookFileId, id));
+        }
+      }
+      const [file] = await tx
+        .update(bookFiles)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(bookFiles.id, id))
+        .returning();
+      return file;
+    });
   }
 
   async findBookFileByAbsolutePath(absolutePath: string, libraryId?: number) {
@@ -641,6 +704,24 @@ export class ScannerRepository {
     return row ?? null;
   }
 
+  /** Present books of a library, counted once up front so a re-apply job reports a stable total. */
+  async getRuleReapplyBounds(libraryId: number): Promise<{ total: number; maxId: number }> {
+    const [row] = await this.db
+      .select({ total: sql<number>`count(*)::int`, maxId: sql<number>`coalesce(max(${books.id}), 0)::int` })
+      .from(books)
+      .where(and(eq(books.libraryId, libraryId), eq(books.status, 'present')));
+    return { total: row?.total ?? 0, maxId: row?.maxId ?? 0 };
+  }
+
+  async findRuleReapplyBookBatch(libraryId: number, afterId: number, maxId: number, limit: number) {
+    return this.db
+      .select({ id: books.id, primaryFileId: books.primaryFileId })
+      .from(books)
+      .where(and(eq(books.libraryId, libraryId), eq(books.status, 'present'), gt(books.id, afterId), lte(books.id, maxId)))
+      .orderBy(asc(books.id))
+      .limit(limit);
+  }
+
   async findBooksByIds(bookIds: number[]) {
     if (bookIds.length === 0) return [];
     return this.db
@@ -660,6 +741,7 @@ export class ScannerRepository {
       this.db
         .select({
           id: books.id,
+          libraryId: books.libraryId,
           status: books.status,
           coverAspectRatio: libraries.coverAspectRatio,
           formatPriority: libraries.formatPriority,

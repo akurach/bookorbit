@@ -43,7 +43,8 @@ describe('UserService', () => {
     setSuperuser: vi.fn(),
     assignViewerLibraries: vi.fn(),
     findLibraryIdsByUserId: vi.fn(),
-    replaceViewerLibraries: vi.fn(),
+    findLibraryGrantsByUserId: vi.fn(),
+    replaceLibraries: vi.fn(),
     findExistingLibraryIds: vi.fn(),
     findSettingsById: vi.fn(),
   };
@@ -639,6 +640,25 @@ describe('UserService', () => {
     await expect(service.getLibraryIds(4)).resolves.toEqual([11, 12]);
   });
 
+  it('getLibraryGrants throws when target user does not exist', async () => {
+    userRepo.findByIdWithPermissions.mockResolvedValue(null);
+
+    await expect(service.getLibraryGrants(4)).rejects.toBeInstanceOf(NotFoundException);
+    expect(userRepo.findLibraryGrantsByUserId).not.toHaveBeenCalled();
+  });
+
+  it('getLibraryGrants returns each library with its access level', async () => {
+    const grants = [
+      { libraryId: 11, accessLevel: 'viewer' },
+      { libraryId: 12, accessLevel: 'editor' },
+    ];
+    userRepo.findByIdWithPermissions.mockResolvedValue({ id: 4, isSuperuser: false });
+    userRepo.findLibraryGrantsByUserId.mockResolvedValue(grants);
+
+    await expect(service.getLibraryGrants(4)).resolves.toEqual(grants);
+    expect(userRepo.findLibraryGrantsByUserId).toHaveBeenCalledWith(4);
+  });
+
   it('setLibraries rejects unknown libraries', async () => {
     userRepo.findByIdWithPermissions.mockResolvedValue({ id: 2, isSuperuser: false });
     userRepo.findExistingLibraryIds.mockResolvedValue([3]);
@@ -658,7 +678,7 @@ describe('UserService', () => {
 
     await service.setLibraries(2, [3, 7, 3], reqUser({ isSuperuser: true }));
 
-    expect(userRepo.replaceViewerLibraries).toHaveBeenCalledWith(2, [3, 7]);
+    expect(userRepo.replaceLibraries).toHaveBeenCalledWith(2, [3, 7]);
   });
 
   it('getContentFilters throws when the target user does not exist', async () => {
@@ -831,7 +851,8 @@ describe('UserService.updateSeriesCollapsePreferences', () => {
     setSuperuser: vi.fn(),
     assignViewerLibraries: vi.fn(),
     findLibraryIdsByUserId: vi.fn(),
-    replaceViewerLibraries: vi.fn(),
+    findLibraryGrantsByUserId: vi.fn(),
+    replaceLibraries: vi.fn(),
     findExistingLibraryIds: vi.fn(),
   };
   const contentFilterRepo = {

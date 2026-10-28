@@ -6,6 +6,7 @@ import type { BookDetail, BookReadingSessionStats, ReadStatus, UserBookStatus } 
 import { isAudioFormat } from '@bookorbit/types'
 import { bookFormatEntries, formatKeyName } from '@/features/book/lib/book-formats'
 import { api } from '@/lib/api'
+import { fetchBookProgress } from '@/lib/reading-progress'
 import { formatDate, formatNumber, formatRelativeFromNow } from '@/i18n/formatters'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { STATUS_COLORS, STATUS_ICONS, STATUS_OPTIONS, useBookStatus } from '@/features/book/composables/useBookStatus'
@@ -180,23 +181,21 @@ function handleFinishedCancel() {
 const readerProgress = ref(0)
 const progressLoaded = ref(false)
 
-async function loadProgress() {
-  progressLoaded.value = false
+/** `silent` keeps the current figure on screen while it is reread, so the ring does not blank. */
+async function loadProgress(silent = false) {
+  if (!silent) progressLoaded.value = false
   const bookId = props.book.id
   const hasAudio = props.book.files.some((file) => file.format != null && isAudioFormat(file.format))
   try {
-    const [progressRes, audioRes] = await Promise.all([
-      api(`/api/v1/books/${bookId}/progress`).catch(() => null),
+    const [progressRows, audioRes] = await Promise.all([
+      fetchBookProgress(bookId).catch(() => null),
       hasAudio ? api(`/api/v1/audiobooks/${bookId}/playback-state`).catch(() => null) : Promise.resolve(null),
     ])
     if (bookId !== props.book.id) return
 
     let max = 0
-    if (progressRes?.ok) {
-      const rows = (await progressRes.json()) as { fileId: number; percentage: number }[]
-      for (const row of rows) {
-        if (Number.isFinite(row.percentage)) max = Math.max(max, row.percentage)
-      }
+    for (const row of progressRows ?? []) {
+      if (Number.isFinite(row.percentage)) max = Math.max(max, row.percentage)
     }
     if (audioRes?.ok) {
       const data = (await audioRes.json()) as { percentage?: number } | null
@@ -210,7 +209,15 @@ async function loadProgress() {
   }
 }
 
-watch(() => props.book.id, loadProgress, { immediate: true })
+watch(
+  () => props.book.id,
+  () => loadProgress(),
+  { immediate: true },
+)
+
+// The stored position can move without the book changing, such as a held KOReader position being
+// accepted, so the tab asks for a reread rather than this card watching for it.
+defineExpose({ reloadProgress: () => loadProgress(true) })
 
 // The stored reading position only moves when a reader or a synced device writes it, so a book
 // whose progress was only ever logged by hand has none. Sessions are the other observation of how
@@ -358,6 +365,10 @@ function handleAddSession() {
         </p>
         <p v-else-if="formatLine" class="mt-1 truncate text-xs text-muted-foreground">{{ formatLine }}</p>
       </div>
+    </div>
+
+    <div v-if="$slots.notice" class="mt-2.5 shrink-0">
+      <slot name="notice" />
     </div>
 
     <dl class="mt-3 shrink-0">

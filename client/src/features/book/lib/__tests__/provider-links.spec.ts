@@ -10,7 +10,6 @@ describe('book provider links', () => {
       amazon: 'amazon-id',
       hardcover: 'hardcover-slug',
       openLibrary: '/works/OL123W',
-      yandexBooks: 'yandex-book-id',
       itunes: '123456',
       audible: 'B012345',
       librofm: '9781234567890',
@@ -56,13 +55,6 @@ describe('book provider links', () => {
         url: 'https://openlibrary.org/works/OL123W',
         iconUrl: '/assets/provider-icons/openlibrary.svg',
         fallback: 'OL',
-      },
-      {
-        key: MetadataProviderKey.YANDEX_BOOKS,
-        label: 'Yandex Books',
-        url: 'https://books.yandex.ru/books/yandex-book-id',
-        iconUrl: null,
-        fallback: 'YB',
       },
       {
         key: MetadataProviderKey.ITUNES,

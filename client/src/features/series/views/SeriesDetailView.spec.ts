@@ -3,6 +3,7 @@ import { computed, defineComponent, nextTick, reactive, ref, type PropType } fro
 import { flushPromises, mount } from '@vue/test-utils'
 import type { BookCard, SeriesBooksPage, SeriesDetail } from '@bookorbit/types'
 import SeriesDetailView from './SeriesDetailView.vue'
+import SeriesCompletionBar from '../components/SeriesCompletionBar.vue'
 
 const GROUP_BY_MEDIA_STORAGE_KEY = 'bookorbit:series-detail:group-by-media'
 
@@ -31,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   libraryId: null as unknown as { value: number | null },
   fetchSeriesBooks: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   api: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  readOnlyLibraryIds: new Set<number>(),
 }))
 
 vi.mock('vue-router', async (importOriginal) => {
@@ -44,6 +46,14 @@ vi.mock('vue-router', async (importOriginal) => {
 
 vi.mock('@/features/auth/composables/usePermissions', () => ({
   usePermissions: () => ({ hasPermission: () => true }),
+}))
+
+vi.mock('@/features/library/composables/useLibraryPermissions', () => ({
+  useLibraryPermissions: () => ({
+    hasLibraryPermission: (_permission: string, libraryId: number | null | undefined) =>
+      libraryId == null || !mocks.readOnlyLibraryIds.has(libraryId),
+    hasPermissionInAnyLibrary: () => true,
+  }),
 }))
 
 vi.mock('@/features/book/composables/useBookNavigation', () => ({
@@ -274,6 +284,7 @@ describe('SeriesDetailView', () => {
     mocks.order = ref('asc')
     mocks.libraryId = ref<number | null>(null)
 
+    mocks.readOnlyLibraryIds.clear()
     mocks.routerPush.mockReset()
     mocks.routerPush.mockResolvedValue(undefined)
     mocks.fetchLibraries.mockReset()
@@ -309,7 +320,7 @@ describe('SeriesDetailView', () => {
     expect(wrapper.find('[data-testid="series-media-group-books"]').exists()).toBe(true)
   })
 
-  it('shows the ownership bar only once a provider has supplied a series total', async () => {
+  it('falls back to book counts when a server does not return volume counts', async () => {
     mocks.seriesInfo = ref(makeSeriesInfo({ bookCount: 4, expectedBookCount: 7 }))
 
     const wrapper = mountView()
@@ -318,7 +329,35 @@ describe('SeriesDetailView', () => {
     const bar = wrapper.get('[role="progressbar"]')
     expect(bar.attributes('aria-valuenow')).toBe('4')
     expect(bar.attributes('aria-valuemax')).toBe('7')
+    expect(wrapper.text()).toContain('4 volumes')
+    const completion = wrapper.getComponent(SeriesCompletionBar)
+    expect(completion.props('readCount')).toBe(0)
+    expect(completion.props('totalCount')).toBe(4)
     expect(wrapper.text()).toContain('4 of 7')
+  })
+
+  it('uses logical volume counts for the header, reading progress, and ownership', async () => {
+    mocks.seriesInfo = ref(
+      makeSeriesInfo({
+        bookCount: 4,
+        readCount: 2,
+        ownedVolumeCount: 2,
+        readVolumeCount: 1,
+        expectedBookCount: 7,
+      }),
+    )
+
+    const wrapper = mountView()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('2 volumes')
+    const completion = wrapper.getComponent(SeriesCompletionBar)
+    expect(completion.props('readCount')).toBe(1)
+    expect(completion.props('totalCount')).toBe(2)
+    const ownership = wrapper.get('[role="progressbar"]')
+    expect(ownership.attributes('aria-valuenow')).toBe('2')
+    expect(ownership.attributes('aria-valuemax')).toBe('7')
+    expect(wrapper.text()).toContain('2 of 7')
   })
 
   it('hides the ownership bar when no provider total is known', async () => {
@@ -576,5 +615,23 @@ describe('SeriesDetailView', () => {
 
     expect(mocks.loadBooks).not.toHaveBeenCalled()
     expect(mocks.setBookContext).not.toHaveBeenCalled()
+  })
+
+  it('opens the series editor on the books the user can edit, skipping read-only libraries', async () => {
+    mocks.readOnlyLibraryIds.add(1)
+    mocks.items.value = [makeBook({ id: 101, libraryId: 1 }), makeBook({ id: 102, libraryId: 2 })]
+    mocks.total.value = 2
+    mocks.hasMore.value = false
+
+    const wrapper = mountView()
+    await nextTick()
+    mocks.setBookContext.mockClear()
+
+    const editBtn = wrapper.findAll('button').find((b) => b.text().includes('Edit Metadata'))
+    await editBtn!.trigger('click')
+    await flushPromises()
+
+    expect(mocks.setBookContext).toHaveBeenCalledWith([102], 1)
+    expect(mocks.routerPush).toHaveBeenCalledWith({ name: 'book-detail', params: { bookId: 102 }, query: { tab: 'edit' } })
   })
 })

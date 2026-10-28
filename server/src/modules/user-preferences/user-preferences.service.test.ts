@@ -113,6 +113,7 @@ const validDisplayPreferences: DisplayPreferences = {
   gridCardSecondaryLabel: 'hidden',
   cardInfoMode: 'hover-overlay',
   thumbnailClickAction: 'reader',
+  placeholderCoverStyle: 'bauhaus',
 };
 
 const validLocalePreferences: LocalePreferences = {
@@ -201,6 +202,34 @@ describe('UserPreferencesService', () => {
     await expect(service.upsertCoverSearchPreferences(11, { ...validCoverSearchPreferences, unexpected: true })).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    expect(repo.upsert).not.toHaveBeenCalled();
+  });
+
+  it('getReadAloudPreferences returns no language when nothing was saved', async () => {
+    await expect(service.getReadAloudPreferences(7)).resolves.toEqual({ defaultLanguage: null });
+    expect(repo.findByCategory).toHaveBeenCalledWith(7, 'read-aloud');
+  });
+
+  it('getReadAloudPreferences returns the saved language, and none when the stored row is malformed', async () => {
+    repo.findByCategory.mockResolvedValueOnce({ data: { defaultLanguage: 'fr' } } as never);
+    await expect(service.getReadAloudPreferences(7)).resolves.toEqual({ defaultLanguage: 'fr' });
+
+    repo.findByCategory.mockResolvedValueOnce({ data: { defaultLanguage: 'English' } } as never);
+    await expect(service.getReadAloudPreferences(7)).resolves.toEqual({ defaultLanguage: null });
+  });
+
+  it('upsertReadAloudPreferences saves and clears the default language', async () => {
+    await expect(service.upsertReadAloudPreferences(11, { defaultLanguage: 'de' })).resolves.toBeUndefined();
+    expect(repo.upsert).toHaveBeenCalledWith(11, 'read-aloud', { defaultLanguage: 'de' });
+
+    await expect(service.upsertReadAloudPreferences(11, { defaultLanguage: null })).resolves.toBeUndefined();
+    expect(repo.upsert).toHaveBeenLastCalledWith(11, 'read-aloud', { defaultLanguage: null });
+  });
+
+  it('upsertReadAloudPreferences rejects a language name, a full tag and unknown fields', async () => {
+    for (const settings of [{ defaultLanguage: 'English' }, { defaultLanguage: 'en-US' }, { defaultLanguage: 'en', unexpected: true }]) {
+      await expect(service.upsertReadAloudPreferences(11, settings)).rejects.toBeInstanceOf(BadRequestException);
+    }
     expect(repo.upsert).not.toHaveBeenCalled();
   });
 
@@ -462,6 +491,29 @@ describe('UserPreferencesService', () => {
     await expect(service.upsertDisplayPreferences(11, withoutAction as unknown as Record<string, unknown>)).resolves.toBeUndefined();
 
     expect(repo.upsert).toHaveBeenCalledWith(11, 'display', expect.objectContaining({ thumbnailClickAction: 'reader' }));
+  });
+
+  it('upsertDisplayPreferences defaults placeholderCoverStyle to bauhaus when omitted', async () => {
+    const { placeholderCoverStyle, ...withoutStyle } = validDisplayPreferences;
+    void placeholderCoverStyle;
+    await service.upsertDisplayPreferences(11, withoutStyle as unknown as Record<string, unknown>);
+
+    expect(repo.upsert).toHaveBeenCalledWith(11, 'display', expect.objectContaining({ placeholderCoverStyle: 'bauhaus' }));
+  });
+
+  it('upsertDisplayPreferences keeps a chosen placeholderCoverStyle', async () => {
+    await service.upsertDisplayPreferences(11, { ...validDisplayPreferences, placeholderCoverStyle: 'marbled' } as unknown as Record<
+      string,
+      unknown
+    >);
+
+    expect(repo.upsert).toHaveBeenCalledWith(11, 'display', expect.objectContaining({ placeholderCoverStyle: 'marbled' }));
+  });
+
+  it('upsertDisplayPreferences rejects unknown placeholderCoverStyle values', async () => {
+    await expect(
+      service.upsertDisplayPreferences(11, { ...validDisplayPreferences, placeholderCoverStyle: 'lattice' } as unknown as Record<string, unknown>),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('upsertDisplayPreferences rejects invalid thumbnailClickAction values', async () => {

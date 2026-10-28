@@ -4,6 +4,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import type * as unzipper from 'unzipper';
 
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, htmlEntities: true });
+const MULTIMEDIA_ENTRY = /\.(?:smil|mp3|m4a|m4b|aac|ogg|opus|wav|flac|mp4|webm)$/i;
 const asArray = <T>(value: T | T[] | undefined): T[] => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
 const invalid = (reason: string): never => {
   throw new BadRequestException({ code: 'UNSUPPORTED_TEXT_ONLY_EPUB', message: reason });
@@ -61,6 +62,19 @@ export async function readEpubEntry(entry: unzipper.File, maxBytes: number): Pro
   } finally {
     stream.destroy();
   }
+}
+
+// Judged by entry names alone, so it still answers for a package too malformed to inspect.
+export function hasMultimediaEntries(files: unzipper.File[]): boolean {
+  return files.some((file) => {
+    let decoded = file.path;
+    try {
+      decoded = decodeURIComponent(file.path);
+    } catch {
+      /* the raw name is still tested */
+    }
+    return MULTIMEDIA_ENTRY.test(file.path) || MULTIMEDIA_ENTRY.test(decoded);
+  });
 }
 
 export function validateEpubEntries(files: unzipper.File[], maxEntries: number): Map<string, unzipper.File> {
@@ -124,8 +138,7 @@ export async function inspectDeliveryEpub(zip: unzipper.CentralDirectory, maxEnt
   const audioPaths = new Set(items.filter((item) => /^audio\//i.test(item['@_media-type'] ?? '')).map((item) => resolve(item['@_href'], opfKey)));
   const declared = new Set(items.map((item) => resolve(item['@_href'], opfKey)));
   for (const key of entries.keys()) {
-    if (/\.(?:smil|mp3|m4a|m4b|aac|ogg|opus|wav|flac|mp4|webm)$/i.test(key) && !declared.has(key))
-      return invalid('Undeclared multimedia is unsupported');
+    if (MULTIMEDIA_ENTRY.test(key) && !declared.has(key)) return invalid('Undeclared multimedia is unsupported');
   }
   const overlayAudio = new Set<string>();
   for (const item of overlayItems) {
@@ -136,6 +149,34 @@ export async function inspectDeliveryEpub(zip: unzipper.CentralDirectory, maxEnt
     const { audio, text } = overlaySources(smilDoc);
     if (!audio.length || !text.length) return invalid('Incomplete media overlay');
     for (const href of [...audio, ...text]) if (!entries.has(resolve(href, smilKey))) return invalid('Missing overlay resource');
+    const textTargets = new Map<string, Set<string>>();
+    for (const href of text) {
+      const key = resolve(href, smilKey);
+      const encodedFragment = href.split('#')[1];
+      if (!encodedFragment) continue;
+      let fragment: string;
+      try {
+        fragment = decodeURIComponent(encodedFragment);
+      } catch {
+        return invalid('Invalid overlay fragment');
+      }
+      const targets = textTargets.get(key) ?? new Set<string>();
+      targets.add(fragment);
+      textTargets.set(key, targets);
+    }
+    for (const [key, targets] of textTargets) {
+      const { doc: textDoc } = await xml(key);
+      const pending: unknown[] = [textDoc];
+      while (pending.length && targets.size) {
+        const node = pending.pop();
+        if (!node || typeof node !== 'object') continue;
+        for (const [name, value] of Object.entries(node)) {
+          if (name === '@_id' && typeof value === 'string') targets.delete(value);
+          else if (!name.startsWith('@_')) pending.push(value);
+        }
+      }
+      if (targets.size) return invalid('Missing overlay text target');
+    }
     for (const href of audio) overlayAudio.add(resolve(href, smilKey));
   }
   if ([...overlayAudio].some((key) => !audioPaths.has(key))) return invalid('Undeclared overlay audio is unsupported');

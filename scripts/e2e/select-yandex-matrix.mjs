@@ -3,7 +3,7 @@ import { matchesGlob, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { E2E_GLOBAL_CHANGE_PATHS, getE2ESuite } from "./suite-registry.mjs";
 
-const SUITE_IDS = ["yandex-books-metadata", "yandex-books-reading"];
+const SUITE_IDS = ["yandex-books-metadata", "yandex-books-reading", "yandex-migration-upgrade"];
 const GLOBAL_PATHS = [
   ...E2E_GLOBAL_CHANGE_PATHS,
   ".github/workflows/yandex-integration.yml",

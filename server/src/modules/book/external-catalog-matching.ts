@@ -11,6 +11,11 @@ import * as schema from '../../db/schema';
 
 const MAX_CANDIDATES = 24;
 
+export function externalCatalogProviderId(item: ExternalCatalogItem): string {
+  const prefix = { ebook: 'book', audiobook: 'audiobook', comic: 'comicbook' }[item.mediaKind];
+  return `${prefix}-${item.externalId}`;
+}
+
 type Db = NodePgDatabase<typeof schema>;
 type Transaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Executor = Db | Transaction;
@@ -22,6 +27,7 @@ export type ExternalCatalogMatchCandidate = {
   isbn10: string | null;
   isbn13: string | null;
   yandexBooksId: string | null;
+  providerId: string | null;
   catalogMediaKind: string | null;
   format: string | null;
   authors: string[];
@@ -83,6 +89,7 @@ function hasContradictoryEdition(candidate: Candidate, item: ExternalCatalogItem
   const itemIsbn = canonicalExternalCatalogIsbn(item.isbn);
   if (candidateIsbn && itemIsbn && candidateIsbn !== itemIsbn) return true;
 
+  if (candidate.providerId != null && candidate.providerId !== externalCatalogProviderId(item)) return true;
   return item.mediaKind === 'ebook' && candidate.yandexBooksId != null && candidate.yandexBooksId !== item.externalId;
 }
 
@@ -137,12 +144,14 @@ async function findCandidates(executor: Executor, user: RequestUser, libraryId: 
       isbn10: schema.bookMetadata.isbn10,
       isbn13: schema.bookMetadata.isbn13,
       yandexBooksId: schema.bookMetadata.yandexBooksId,
+      providerId: schema.bookProviderIds.externalId,
       catalogMediaKind: schema.books.catalogMediaKind,
       format: schema.bookFiles.format,
     })
     .from(schema.books)
     .innerJoin(schema.bookMetadata, eq(schema.bookMetadata.bookId, schema.books.id))
     .leftJoin(schema.bookFiles, eq(schema.bookFiles.id, schema.books.primaryFileId))
+    .leftJoin(schema.bookProviderIds, and(eq(schema.bookProviderIds.bookId, schema.books.id), eq(schema.bookProviderIds.provider, 'yandexbooks')))
     .where(and(...candidateClauses(user, libraryId, executor), where))
     .limit(MAX_CANDIDATES + 1);
   return { candidates: await hydrateCandidates(executor, rows.slice(0, MAX_CANDIDATES)), saturated: rows.length > MAX_CANDIDATES };
@@ -184,11 +193,29 @@ export async function matchExternalCatalogBook(
   );
   if (sourceMatch != null) return sourceMatch;
 
+  const nativeSearch = await findCandidates(tx, user, libraryId, eq(schema.bookProviderIds.externalId, externalCatalogProviderId(item)));
+  if (nativeSearch.saturated) throw new BadRequestException('Too many local books have this Yandex Books edition. Link one explicitly.');
+  const nativeMatch = uniqueOrConflict(nativeSearch.candidates, 'More than one book has this Yandex Books edition. Link one explicitly.');
+  if (nativeMatch != null) {
+    const candidate = nativeSearch.candidates[0]!;
+    if (
+      mediaKindForCandidate(candidate) !== item.mediaKind ||
+      (item.mediaKind === 'ebook' && candidate.yandexBooksId != null && candidate.yandexBooksId !== item.externalId)
+    ) {
+      throw new BadRequestException('A Yandex Books edition has conflicting local identity. Link one explicitly.');
+    }
+    return nativeMatch;
+  }
+
   if (item.mediaKind === 'ebook') {
     const yandexSearch = await findCandidates(tx, user, libraryId, eq(schema.bookMetadata.yandexBooksId, item.externalId));
     if (yandexSearch.saturated) throw new BadRequestException('Too many local books have this Yandex Books edition. Link one explicitly.');
     const yandexMatch = uniqueOrConflict(yandexSearch.candidates, 'More than one book has this Yandex Books edition. Link one explicitly.');
-    if (yandexMatch != null && mediaKindForCandidate(yandexSearch.candidates[0]!) !== item.mediaKind) {
+    if (
+      yandexMatch != null &&
+      (mediaKindForCandidate(yandexSearch.candidates[0]!) !== item.mediaKind ||
+        (yandexSearch.candidates[0]!.providerId != null && yandexSearch.candidates[0]!.providerId !== externalCatalogProviderId(item)))
+    ) {
       throw new BadRequestException('A Yandex Books edition is attached to an incompatible local media type. Link one explicitly.');
     }
     if (yandexMatch != null) return yandexMatch;

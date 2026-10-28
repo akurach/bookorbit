@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { getE2ESuite } from "./suite-registry.mjs";
 import { changedFilesForPush, selectYandexSuites } from "./select-yandex-matrix.mjs";
 
-const both = ["yandex-books-metadata", "yandex-books-reading"];
+const both = ["yandex-books-metadata", "yandex-books-reading", "yandex-migration-upgrade"];
 const ids = (files) => selectYandexSuites(files).map((suite) => suite.id);
 
 for (const id of both) {

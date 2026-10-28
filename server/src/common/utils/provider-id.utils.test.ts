@@ -48,12 +48,6 @@ describe('boundProviderId', () => {
     const value = 'C'.repeat(60);
     expect(boundProviderId('googleBooksId', value)).toBeNull();
     expect(boundProviderId('hardcoverId', value)).toBe(value);
-    expect(boundProviderId('yandexBooksId', value)).toBe(value);
-  });
-
-  it('preserves the opaque case-sensitive Yandex Books identifier unchanged', () => {
-    expect(boundProviderId('yandexBooksId', 'AbC123YandexBook')).toBe('AbC123YandexBook');
-    expect(boundProviderId('yandexBooksId', 'book-id')).toBeNull();
   });
 
   it('preserves null and undefined so callers keep cleared distinct from absent', () => {

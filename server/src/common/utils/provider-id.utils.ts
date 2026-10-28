@@ -21,15 +21,9 @@ export const PROVIDER_ID_MAX_LENGTHS = {
   ranobedbId: 50,
   lubimyczytacId: 512,
   aladinId: 20,
-  yandexBooksId: 255,
 } as const;
 
 export type ProviderIdField = keyof typeof PROVIDER_ID_MAX_LENGTHS;
-
-/** Yandex Books IDs are opaque and case-sensitive, but the service exposes only alphanumeric book IDs. */
-export function isYandexBooksId(value: string): boolean {
-  return /^[A-Za-z0-9]+$/.test(value);
-}
 
 /**
  * Drops an identifier that cannot fit its column instead of truncating it. A value that overflows
@@ -41,6 +35,5 @@ export function isYandexBooksId(value: string): boolean {
  */
 export function boundProviderId(field: ProviderIdField, value: string | null | undefined): string | null | undefined {
   if (value === null || value === undefined) return value;
-  if (field === 'yandexBooksId' && !isYandexBooksId(value)) return null;
   return value.length > PROVIDER_ID_MAX_LENGTHS[field] ? null : value;
 }

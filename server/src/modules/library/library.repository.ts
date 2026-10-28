@@ -1,3 +1,4 @@
+import { retainFinishedReads } from '../../db/reading-attempt-retention';
 import { deleteLibraryFoldersWithHashInvalidation } from '../../db/book-file-hash-history';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, getTableColumns, gt, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
@@ -97,11 +98,16 @@ export class LibraryRepository {
       .orderBy(libraries.id);
   }
 
-  findAccessibleIdsForUser(userId: number) {
+  findAccessibleIdsForUser(userId: number, accessLevels?: readonly AccessLevel[]) {
+    const accessJoin = and(
+      eq(schema.userLibraryAccess.libraryId, libraries.id),
+      eq(schema.userLibraryAccess.userId, userId),
+      accessLevels ? inArray(schema.userLibraryAccess.accessLevel, [...accessLevels]) : undefined,
+    );
     return this.db
       .select({ id: libraries.id })
       .from(libraries)
-      .innerJoin(schema.userLibraryAccess, and(eq(schema.userLibraryAccess.libraryId, libraries.id), eq(schema.userLibraryAccess.userId, userId)))
+      .innerJoin(schema.userLibraryAccess, accessJoin)
       .where(visibleLibraryCondition)
       .orderBy(libraries.displayOrder, libraries.name);
   }
@@ -279,8 +285,12 @@ export class LibraryRepository {
     return this.db.select({ id: books.id }).from(books).where(eq(books.libraryId, libraryId));
   }
 
+  /** The library's books go with it by cascade; their finished reads stay in each reader's history. */
   delete(id: number) {
-    return this.db.delete(libraries).where(eq(libraries.id, id));
+    return this.db.transaction(async (tx) => {
+      await retainFinishedReads(tx, eq(books.libraryId, id));
+      await tx.delete(libraries).where(eq(libraries.id, id));
+    });
   }
 
   deleteFolder(id: number) {

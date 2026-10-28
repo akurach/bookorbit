@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, Pencil, Plus, RotateCcw, Trash2, X } from '@lucide/vue'
+import { ArrowRight, Check, Pencil, Plus, RotateCcw, Trash2, X } from '@lucide/vue'
 import type { ReadingAttempt, ReadingAttemptOutcome } from '@bookorbit/types'
 import { READING_ATTEMPT_OUTCOMES } from '@bookorbit/types'
 import { formatDate } from '@/i18n/formatters'
 import type { ReadingAttemptDraft } from '@/features/book/composables/useReadingAttempts'
+import { compareReadingOrder } from '@/features/book/lib/reading-attempt-order'
+import HistoryStars from '@/features/reading-history/components/HistoryStars.vue'
 
 const props = defineProps<{
   attempts: ReadingAttempt[]
@@ -13,12 +15,14 @@ const props = defineProps<{
   saving: boolean
   error: string | null
   canManage: boolean
+  bookId: number
 }>()
 
 const emit = defineEmits<{
   save: [draft: ReadingAttemptDraft, attemptId: number | null]
   startReread: [resetProgress: boolean]
   remove: [attemptId: number]
+  rate: [attemptId: number, rating: number | null]
 }>()
 
 const { t } = useI18n()
@@ -33,12 +37,12 @@ const localError = ref<string | null>(null)
 
 /** Oldest first, so "attempt 2" means the second one the reader started. */
 const ordinalById = computed(() => {
-  const ordered = [...props.attempts].sort((left, right) => left.id - right.id)
+  const ordered = [...props.attempts].sort(compareReadingOrder)
   return new Map(ordered.map((attempt, index) => [attempt.id, index + 1]))
 })
 
 /** Newest first: the attempt in progress is the one worth seeing without scrolling. */
-const ordered = computed(() => [...props.attempts].sort((left, right) => right.id - left.id))
+const ordered = computed(() => [...props.attempts].sort((left, right) => compareReadingOrder(right, left)))
 
 const outcomeOptions = computed(() =>
   READING_ATTEMPT_OUTCOMES.map((outcome) => ({ value: outcome, label: t(`book.detail.readingLog.attempts.outcome.${outcome}`) })),
@@ -135,6 +139,13 @@ function handleDeleteClick(attempt: ReadingAttempt) {
   }
   confirmDeleteId.value = attempt.id
 }
+
+function handleRate(attempt: ReadingAttempt, rating: number | null) {
+  emit('rate', attempt.id, rating)
+}
+
+const historyRoute = computed(() => ({ name: 'reading-history', query: { book: String(props.bookId), year: 'all' } }))
+const hasFinished = computed(() => props.attempts.some((attempt) => attempt.outcome !== null))
 
 function handleCancelDelete() {
   confirmDeleteId.value = null
@@ -324,8 +335,16 @@ defineExpose({ openAddForm })
               <span class="font-medium text-foreground">{{ formatDuration(attempt.totalSeconds) }}</span>
             </template>
           </p>
+          <HistoryStars v-if="attempt.outcome" class="mt-1" interactive :rating="attempt.rating" :size="11" @rate="handleRate(attempt, $event)" />
         </div>
       </li>
     </ol>
+    <RouterLink
+      v-if="hasFinished"
+      :to="historyRoute"
+      class="mx-3 mb-2 flex flex-none items-center gap-1 border-t border-border pt-2 text-[11.5px] font-semibold text-primary hover:underline"
+    >
+      {{ t('readingHistory.links.bookReads') }}<ArrowRight class="size-3" aria-hidden="true" />
+    </RouterLink>
   </section>
 </template>

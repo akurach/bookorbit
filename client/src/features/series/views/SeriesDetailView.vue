@@ -13,9 +13,9 @@ import { bookCoverStyle } from '@/features/book/lib/book-cover'
 import { useCoverVersions } from '@/features/book/composables/useCoverVersions'
 import { useScrollRestoreOnActivate } from '@/features/book/composables/useScrollRestoreOnActivate'
 import { useDisplaySettings } from '@/composables/useDisplaySettings'
-import { usePermissions } from '@/features/auth/composables/usePermissions'
 import { useBookNavigation } from '@/features/book/composables/useBookNavigation'
 import { useLibraries } from '@/features/library/composables/useLibraries'
+import { useLibraryPermissions } from '@/features/library/composables/useLibraryPermissions'
 import { usePageTitle } from '@/composables/usePageTitle'
 import { useSafeHtml } from '@/features/book/composables/useSafeHtml'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -48,7 +48,6 @@ const route = useRoute()
 const router = useRouter()
 const mainRef = ref<HTMLElement | null>(null)
 useScrollRestoreOnActivate(mainRef)
-const { hasPermission } = usePermissions()
 const { setBookContext } = useBookNavigation()
 const { coverUrl } = useCoverVersions()
 
@@ -103,10 +102,16 @@ const leadBook = ref<{
 let observer: IntersectionObserver | null = null
 let leadBookRequestToken = 0
 
-const canEditMetadata = computed(() => hasPermission('library_edit_metadata'))
+const { hasLibraryPermission, hasPermissionInAnyLibrary } = useLibraryPermissions()
+function canEditBookMetadata(book: BookCard): boolean {
+  return hasLibraryPermission('library_edit_metadata', book.libraryId, 'editor')
+}
+const canEditMetadata = computed(() => hasPermissionInAnyLibrary('library_edit_metadata', 'editor'))
 const safeLeadDescription = useSafeHtml(() => leadBook.value?.description)
 const visibleSeriesAuthors = computed(() => (seriesInfo.value?.authors ?? []).slice(0, 5))
 const hiddenSeriesAuthorsCount = computed(() => Math.max(0, (seriesInfo.value?.authors.length ?? 0) - visibleSeriesAuthors.value.length))
+const ownedVolumeCount = computed(() => seriesInfo.value?.ownedVolumeCount ?? seriesInfo.value?.bookCount ?? 0)
+const readVolumeCount = computed(() => seriesInfo.value?.readVolumeCount ?? seriesInfo.value?.readCount ?? 0)
 const addToCollectionOpen = ref(false)
 const addToCollectionBookId = ref<number | null>(null)
 const leadFallbackStyle = computed(() => {
@@ -378,7 +383,7 @@ async function editSeriesMetadata() {
       return
     }
 
-    const ids = books.value.map((book) => book.id)
+    const ids = books.value.filter(canEditBookMetadata).map((book) => book.id)
     if (ids.length === 0) {
       toast.error(t('series.detail.noBooksToEdit'))
       return
@@ -460,9 +465,12 @@ defineOptions({ name: 'SeriesDetailView' })
 <template>
   <div class="flex h-full flex-col">
     <main ref="mainRef" class="flex-1 min-h-0 overflow-y-auto py-2">
-      <div class="mb-4">
-        <button class="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground" @click="goBack">
-          <ChevronLeft :size="16" />
+      <div class="mb-3 flex min-h-11 items-center px-1">
+        <button
+          class="inline-flex h-8 items-center gap-1 rounded-md border border-input px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          @click="goBack"
+        >
+          <ChevronLeft :size="14" />
           {{ t('common.back') }}
         </button>
       </div>
@@ -532,7 +540,7 @@ defineOptions({ name: 'SeriesDetailView' })
                 <div class="min-w-0">
                   <h1 class="text-xl font-bold text-foreground">{{ seriesInfo.name }}</h1>
                   <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                    <span>{{ t('series.detail.bookCount', { count: seriesInfo.bookCount }) }}</span>
+                    <span>{{ t('series.card.volumeCount', { count: ownedVolumeCount }) }}</span>
                     <span v-if="visibleSeriesAuthors.length > 0">
                       {{ t('series.detail.byAuthors', { authors: visibleSeriesAuthors.join(', ') }) }}
                       <span v-if="hiddenSeriesAuthorsCount > 0"> {{ t('series.detail.moreAuthors', { count: hiddenSeriesAuthorsCount }) }}</span>
@@ -552,10 +560,10 @@ defineOptions({ name: 'SeriesDetailView' })
               </div>
 
               <div class="mt-3 grid max-w-md gap-3 sm:grid-cols-2">
-                <SeriesCompletionBar :read-count="seriesInfo.readCount" :total-count="seriesInfo.bookCount" />
+                <SeriesCompletionBar :read-count="readVolumeCount" :total-count="ownedVolumeCount" />
                 <SeriesOwnershipBar
                   v-if="seriesInfo.expectedBookCount !== null"
-                  :owned-count="seriesInfo.bookCount"
+                  :owned-count="ownedVolumeCount"
                   :expected-count="seriesInfo.expectedBookCount"
                 />
               </div>

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
 import {
   COMMUNITY_RATING_PROVIDER_KEYS,
+  isBuiltInMetadataProviderKey,
   CUSTOM_FIELD_OPERATORS,
   CUSTOM_FIELD_TYPE_OPERATORS,
   FIELD_OPERATORS,
@@ -24,7 +25,8 @@ import { READ_STATUSES } from '@bookorbit/types'
 import { useActiveCustomFields } from '@/features/book/composables/useActiveCustomFields'
 import { fieldLabel, operatorLabel } from '@/features/book/lib/filter-labels'
 import { providerIconPathSafe } from '@/features/book/lib/provider-icons'
-import { PROVIDER_SHORT_LABELS } from '@/lib/provider-colors'
+import { providerShortLabel } from '@/lib/provider-colors'
+import { useMetadataProviderLabels } from '@/features/book/composables/useMetadataProviderLabels'
 import { useLibraries } from '@/features/library/composables/useLibraries'
 import FilterChipTypeahead from './FilterChipTypeahead.vue'
 import FilterFormatPicker from './FilterFormatPicker.vue'
@@ -36,6 +38,8 @@ const { t } = useI18n()
 const props = defineProps<{
   modelValue: GroupRule | undefined
   depth?: number
+  /** Deepest nesting allowed. A smart scope's page wraps this filter in the scope's own rules, so it allows one level less. */
+  maxDepth?: number
   preserveIncompleteRoot?: boolean
 }>()
 
@@ -72,6 +76,7 @@ const NO_VALUE_OPERATORS: RuleOperator[] = [
 ]
 const BETWEEN_OPERATORS: RuleOperator[] = ['between']
 const COLLECTION_OPERATORS: RuleOperator[] = ['includesAny', 'includesAll', 'excludesAll']
+const RELATIVE_DAY_OPERATORS: RuleOperator[] = ['withinLast', 'moreThanAgo']
 
 const SCORE_PRESETS = [
   { label: 'outstanding', gte: 90 },
@@ -94,13 +99,18 @@ const READ_STATUS_LABELS = computed<Record<string, string>>(() => ({
   abandoned: t('book.readStatus.abandoned'),
 }))
 
-const COMMUNITY_RATING_PROVIDER_OPTIONS = computed<{ value: CommunityRatingProvider; label: string }[]>(() => [
-  { value: 'any', label: t('book.filter.anyProvider') },
-  ...COMMUNITY_RATING_PROVIDER_KEYS.map((provider) => ({
-    value: provider,
-    label: PROVIDER_SHORT_LABELS[provider] ?? provider,
-  })),
-])
+const { labels: providerLabels } = useMetadataProviderLabels()
+// External providers' ratings can be filtered on too; they join the built-in list once known.
+const COMMUNITY_RATING_PROVIDER_OPTIONS = computed<{ value: CommunityRatingProvider; label: string }[]>(() => {
+  const external = Object.keys(providerLabels.value).filter((key) => !isBuiltInMetadataProviderKey(key))
+  return [
+    { value: 'any', label: t('book.filter.anyProvider') },
+    ...[...COMMUNITY_RATING_PROVIDER_KEYS, ...external].map((provider) => ({
+      value: provider,
+      label: providerShortLabel(provider, providerLabels.value[provider]),
+    })),
+  ]
+})
 
 const ENDPOINT_BY_FIELD: Partial<Record<RuleField, string>> = {
   author: '/api/v1/metadata/authors',
@@ -213,9 +223,10 @@ function parseValue(field: RuleField, operator: RuleOperator, raw: string, chips
   if (NO_VALUE_OPERATORS.includes(operator)) return undefined
   if (COLLECTION_OPERATORS.includes(operator)) return chips
   if (isNumericField(field)) return raw === '' ? undefined : field === 'fileSize' ? Math.round(Number(raw) * BYTES_PER_MIB) : Number(raw)
-  if (isDateField(field) && operator === 'withinLast') {
+  if (isDateField(field) && RELATIVE_DAY_OPERATORS.includes(operator)) {
     if (raw === '') return undefined
     const n = Number(raw)
+    if (operator === 'moreThanAgo') return n
     const multiplier = unit === 'weeks' ? 7 : unit === 'months' ? 30 : 1
     return n * multiplier
   }
@@ -404,7 +415,7 @@ function removeStatusChip(index: number, status: string) {
 
 function valueInputType(field: RuleField, operator: RuleOperator): string {
   if (NO_VALUE_OPERATORS.includes(operator)) return 'none'
-  if (isDateField(field)) return operator === 'withinLast' ? 'number' : 'date'
+  if (isDateField(field)) return RELATIVE_DAY_OPERATORS.includes(operator) ? 'number' : 'date'
   if (field === 'seriesIndex') return 'text'
   if (isNumericField(field)) return 'number'
   return 'text'
@@ -577,8 +588,8 @@ function showValueToInput(operator: RuleOperator): boolean {
             </select>
           </div>
         </template>
-        <!-- withinLast: number + unit selector -->
-        <template v-else-if="node.rule.operator === 'withinLast'">
+        <!-- Relative date: numeric day count, with convenience units for withinLast. -->
+        <template v-else-if="RELATIVE_DAY_OPERATORS.includes(node.rule.operator)">
           <input
             v-model="node.rule.value"
             type="number"
@@ -588,6 +599,7 @@ function showValueToInput(operator: RuleOperator): boolean {
             @input="emitUpdate"
           />
           <select
+            v-if="node.rule.operator === 'withinLast'"
             v-model="node.rule.valueUnit"
             class="h-9 rounded-md border border-input bg-background text-foreground text-sm px-2 focus:outline-none focus:ring-2 focus:ring-primary"
             @change="emitUpdate"
@@ -596,6 +608,7 @@ function showValueToInput(operator: RuleOperator): boolean {
             <option value="weeks">{{ t('book.filter.unit.weeks') }}</option>
             <option value="months">{{ t('book.filter.unit.months') }}</option>
           </select>
+          <span v-else class="text-sm text-muted-foreground">{{ t('book.filter.unit.daysAgo') }}</span>
         </template>
         <!-- Text typeahead: publisher, series, language -->
         <FilterTextTypeahead
@@ -720,7 +733,12 @@ function showValueToInput(operator: RuleOperator): boolean {
           <div class="flex items-center justify-between mb-3">
             <span class="text-[10px] font-semibold uppercase tracking-widest text-primary">{{ t('book.filter.group') }}</span>
           </div>
-          <BookFilterBuilder :model-value="node.group" :depth="(depth ?? 0) + 1" @update:model-value="onSubGroupUpdate(index, $event)" />
+          <BookFilterBuilder
+            :model-value="node.group"
+            :depth="(depth ?? 0) + 1"
+            :max-depth="maxDepth"
+            @update:model-value="onSubGroupUpdate(index, $event)"
+          />
         </div>
         <button
           @click="removeNode(index)"
@@ -741,7 +759,7 @@ function showValueToInput(operator: RuleOperator): boolean {
         {{ t('book.filter.addRule') }}
       </button>
       <button
-        v-if="(depth ?? 0) < MAX_DEPTH"
+        v-if="(depth ?? 0) < (maxDepth ?? MAX_DEPTH)"
         @click="addGroup"
         class="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-dashed border-primary/30 text-sm text-primary hover:text-primary hover:border-primary hover:bg-primary/5 transition-colors"
       >

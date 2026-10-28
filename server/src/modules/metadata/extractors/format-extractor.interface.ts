@@ -29,7 +29,6 @@ export interface ParsedBookData {
   comicvineId?: string | null;
   lubimyczytacId?: string | null;
   aladinId?: string | null;
-  yandexBooksId?: string | null;
   itunesId?: string | null;
   audibleId?: string | null;
   librofmId?: string | null;
@@ -48,6 +47,11 @@ export interface ParsedBookData {
   comicMetadata?: ParsedCbzComicMetadata | null;
 }
 
+export interface FormatExtractOptions {
+  /** False skips reading the cover; the result's cover is then null. */
+  cover?: boolean;
+}
+
 export interface FormatExtractor {
-  extract(absolutePath: string): Promise<ParsedBookData | null>;
+  extract(absolutePath: string, options?: FormatExtractOptions): Promise<ParsedBookData | null>;
 }

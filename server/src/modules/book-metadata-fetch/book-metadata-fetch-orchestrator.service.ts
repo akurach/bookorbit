@@ -2,10 +2,11 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional }
 import type { BookMetadataFetchReason } from '@bookorbit/types';
 import { MetadataProviderKey, NotificationType, Permission, parseSeriesIndex } from '@bookorbit/types';
 import { NotificationService } from '../notification/notification.service';
-import { coverFetchInputs, resolveIsAudiobook, type CoverFetchState } from '../../common/utils/book-media.utils';
+import { chapterProvenance, normalizeAudiobookChapters } from '../../common/utils/audiobook-chapters.utils';
+import { coverFetchInputs, resolveIsAudiobook, resolveSearchMediaKind, type CoverFetchState } from '../../common/utils/book-media.utils';
+import { AudiobookChaptersService } from '../audiobook-chapters/audiobook-chapters.service';
 import { BookCoverStore } from '../book-cover-store/book-cover-store.service';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
-import { boundProviderId } from '../../common/utils/provider-id.utils';
 import { normalizePublishedDate, publishedYearFromDateKey } from '../../common/utils/published-date.utils';
 import { BookReadService } from '../book/book-read.service';
 import * as schema from '../../db/schema';
@@ -13,6 +14,7 @@ import { MetadataScoreService } from '../metadata-score/metadata-score.service';
 import { ComicMetadataRepository } from '../metadata/comic-metadata.repository';
 import { MetadataService } from '../metadata/metadata.service';
 import { ExistingMetadataFields, MetadataFetchPipeline, ResolvedMetadataFields } from '../metadata-fetch/metadata-fetch-pipeline';
+import { isExternalProviderIdKey, ProviderIdStore } from '../metadata-fetch/provider-ids/provider-id.store';
 import { ProviderThrottleTracker } from '../metadata-fetch/provider-throttle.tracker';
 import type { MetadataSearchParams } from '../metadata-fetch/providers/metadata-search-params';
 import { BookMetadataLockService } from '../book-metadata-lock/book-metadata-lock.service';
@@ -67,6 +69,8 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     private readonly notificationService: NotificationService,
     private readonly coverStore: BookCoverStore,
     @Optional() private readonly gateway?: BookMetadataFetchGateway,
+    @Optional() private readonly audiobookChapters?: AudiobookChaptersService,
+    @Optional() private readonly providerIdStore?: ProviderIdStore,
   ) {}
 
   async onApplicationBootstrap() {
@@ -101,9 +105,29 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     return queued;
   }
 
+  /** Runs every books library with its own effective rule, so a library override applies here too. */
   async triggerGlobal(ignoreCache = false): Promise<number> {
-    const config = await this.configService.getGlobalConfig();
-    const queued = await this.queueRepo.scheduleEligibleBooksInBatches(config, 'manual_trigger', undefined, SCHEDULE_BATCH_SIZE, ignoreCache);
+    const startedAt = Date.now();
+    const libraryIds = await this.configService.bookLibraryIds();
+    this.logger.log(
+      `[book.metadata_fetch.run_all] [start] libraries=${libraryIds.length} ignoreCache=${ignoreCache} - metadata fetch run started for every library`,
+    );
+    let queued = 0;
+    for (const libraryId of libraryIds) {
+      const config = await this.configService.getEffectiveConfig(libraryId);
+      const libraryQueued = await this.queueRepo.scheduleEligibleBooksInBatches(
+        config,
+        'manual_trigger',
+        libraryId,
+        SCHEDULE_BATCH_SIZE,
+        ignoreCache,
+      );
+      await this.configService.recordLibraryRun(libraryId, libraryQueued);
+      queued += libraryQueued;
+    }
+    this.logger.log(
+      `[book.metadata_fetch.run_all] [end] libraries=${libraryIds.length} queued=${queued} durationMs=${Date.now() - startedAt} - metadata fetch run scheduled`,
+    );
     await this.unpauseIfNeeded();
     if (queued > 0) {
       this.session.addToTotal(queued);
@@ -254,15 +278,17 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
         }
       }
 
+      const isAudiobook = resolveIsAudiobook(fileRows, meta, book.books.primaryFileId);
       const searchParams: MetadataSearchParams = {
         title: meta?.title ?? undefined,
         author: authorRows[0]?.name ?? undefined,
         isbn: meta?.isbn13?.trim() || meta?.isbn10?.trim() || undefined,
         seriesName: meta?.seriesName ?? undefined,
         seriesIndex: meta?.seriesIndex ?? undefined,
-        existingProviderIds: this.collectProviderIds(meta ?? {}),
+        existingProviderIds: { ...this.collectProviderIds(meta ?? {}), ...(await this.providerIdStore?.read(bookId)) },
         hardcoverEditionId: meta?.hardcoverEditionId ?? undefined,
-        isAudiobook: resolveIsAudiobook(fileRows, meta, book.books.primaryFileId),
+        isAudiobook,
+        mediaKind: resolveSearchMediaKind(fileRows, isAudiobook, book.books.primaryFileId),
         maxCandidatesPerProvider: 1,
       };
 
@@ -398,8 +424,9 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     if (filteredProviderIds[MetadataProviderKey.RANOBEDB]) scalarFields.ranobedbId = filteredProviderIds[MetadataProviderKey.RANOBEDB];
     if (filteredProviderIds[MetadataProviderKey.LUBIMYCZYTAC]) scalarFields.lubimyczytacId = filteredProviderIds[MetadataProviderKey.LUBIMYCZYTAC];
     if (filteredProviderIds[MetadataProviderKey.ALADIN]) scalarFields.aladinId = filteredProviderIds[MetadataProviderKey.ALADIN];
-    const yandexBooksId = boundProviderId('yandexBooksId', filteredProviderIds[MetadataProviderKey.YANDEX_BOOKS]);
-    if (yandexBooksId) scalarFields.yandexBooksId = yandexBooksId;
+    // Ids from external providers have no column; they land in their own table, set-only like the columns above.
+    const externalIds = Object.fromEntries(Object.entries(filteredProviderIds).filter(([key, value]) => value && isExternalProviderIdKey(key)));
+    if (Object.keys(externalIds).length > 0) await this.providerIdStore?.write(bookId, externalIds);
 
     const duration = this.asNullableNumber(filteredResolved.duration);
     if (duration !== undefined) scalarFields.durationSeconds = duration;
@@ -407,7 +434,12 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     // overwrite an existing true value.
     const abridged = this.asBoolean(filteredResolved.abridged);
     if (abridged !== undefined) scalarFields.abridged = abridged;
-    if (filteredResolved.chapters !== undefined) scalarFields.chapters = filteredResolved.chapters;
+    if (filteredResolved.chapters !== undefined) {
+      const chapters = filteredResolved.chapters.length > 0 ? normalizeAudiobookChapters(filteredResolved.chapters) : null;
+      scalarFields.chapters = chapters;
+      Object.assign(scalarFields, chapterProvenance(chapters, 'provider'));
+      await this.audiobookChapters?.recordCurrentRevision(bookId);
+    }
 
     scalarFields.lastMetadataFetchAt = new Date();
     scalarFields.updatedAt = new Date();
@@ -529,7 +561,6 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     ranobedbId?: string | null;
     lubimyczytacId?: string | null;
     aladinId?: string | null;
-    yandexBooksId?: string | null;
   }): Partial<Record<MetadataProviderKey, string>> {
     const ids: Partial<Record<MetadataProviderKey, string>> = {};
     if (meta.googleBooksId) ids[MetadataProviderKey.GOOGLE] = meta.googleBooksId;
@@ -545,7 +576,6 @@ export class BookMetadataFetchOrchestratorService implements OnApplicationBootst
     if (meta.ranobedbId) ids[MetadataProviderKey.RANOBEDB] = meta.ranobedbId;
     if (meta.lubimyczytacId) ids[MetadataProviderKey.LUBIMYCZYTAC] = meta.lubimyczytacId;
     if (meta.aladinId) ids[MetadataProviderKey.ALADIN] = meta.aladinId;
-    if (meta.yandexBooksId) ids[MetadataProviderKey.YANDEX_BOOKS] = meta.yandexBooksId;
     return ids;
   }
 
