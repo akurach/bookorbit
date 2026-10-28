@@ -3,7 +3,7 @@ import { join } from 'path';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { Client, Pool } from 'pg';
 
-import manifest from '../src/scripts/legacy-yandex-schema-manifest.json';
+import manifest from '../src/scripts/legacy-yandex-schema-manifest';
 import { readLegacyYandexCatalog } from '../src/scripts/legacy-yandex-schema';
 import { installPostgresExtensions } from '../src/scripts/postgres-extensions';
 import { bridgeYandexMigrations, LEGACY_YANDEX_HASHES } from '../src/scripts/yandex-migration-compatibility';

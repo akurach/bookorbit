@@ -57,6 +57,9 @@ export async function assertPristineExternalPlaceholder(
     isbn13: item.isbn?.replace(/[^0-9Xx]/g, '').slice(-13) || null,
     yandexBooksId: metadata.yandexBooksId === null ? null : item.mediaKind === 'ebook' ? item.externalId : null,
     abridged: false,
+    chapterCount: 0,
+    numberedChapterCount: 0,
+    manifestLegacyRecorded: false,
     lockedFields: [],
   };
   for (const [key, value] of Object.entries(metadata)) {

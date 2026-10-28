@@ -11,7 +11,7 @@ import { dropUnreleasedMigrationRows, reconcileMigrationLedgerTimestamps } from 
 import { installPostgresExtensions } from './postgres-extensions';
 import { prepareLegacySeriesIndexColumns } from './series-index-migration-compatibility';
 import { readLegacyYandexCatalog } from './legacy-yandex-schema';
-import legacyYandexManifest from './legacy-yandex-schema-manifest.json';
+import legacyYandexManifest from './legacy-yandex-schema-manifest';
 import { bridgeYandexMigrations } from './yandex-migration-compatibility';
 import { backfillYandexProviderIds } from './yandex-provider-id-backfill';
 

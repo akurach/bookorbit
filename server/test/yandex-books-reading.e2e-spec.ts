@@ -621,6 +621,7 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     await ctx.db.update(schema.bookMetadata).set({ isbn10: '0306406152', isbn13: null }).where(eq(schema.bookMetadata.bookId, bookId));
     expect((await catalog.importItem(await user(), destination, { ...source, title: 'Alternate catalog title' })).bookId).toBe(bookId);
     await ctx.db.delete(schema.externalBookSources).where(eq(schema.externalBookSources.bookId, bookId));
+    await ctx.db.delete(schema.bookProviderIds).where(eq(schema.bookProviderIds.bookId, bookId));
     const [copy] = await ctx.db
       .insert(schema.books)
       .values({
@@ -692,6 +693,8 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
     'file',
     'note',
     'metadata',
+    'chapters',
+    'manifest',
     'manualStatus',
     'otherUser',
     'permission',
@@ -713,6 +716,13 @@ describe('Yandex Books catalog and reading state (e2e)', { timeout: 60_000 }, ()
       await ctx.db.insert(schema.userBookNotes).values({ userId: session.userId, bookId: duplicate.bookId, note: 'Keep my note' });
     if (reason === 'metadata')
       await ctx.db.update(schema.bookMetadata).set({ title: 'Edited title' }).where(eq(schema.bookMetadata.bookId, duplicate.bookId));
+    if (reason === 'chapters')
+      await ctx.db
+        .update(schema.bookMetadata)
+        .set({ chapters: [{ title: 'My chapter', start: 0 }] })
+        .where(eq(schema.bookMetadata.bookId, duplicate.bookId));
+    if (reason === 'manifest')
+      await ctx.db.update(schema.bookMetadata).set({ manifestLegacyRecorded: true }).where(eq(schema.bookMetadata.bookId, duplicate.bookId));
     if (reason === 'manualStatus')
       await ctx.db.update(schema.userBookStatus).set({ status: 'read', source: 'manual' }).where(eq(schema.userBookStatus.bookId, duplicate.bookId));
     if (reason === 'otherUser')

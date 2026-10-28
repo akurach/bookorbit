@@ -8,10 +8,10 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const sha = process.env.GITHUB_SHA;
 if (!/^[a-f0-9]{40}$/.test(sha ?? "")) throw new Error("A full GITHUB_SHA is required");
 const output = join(root, "test-results/home-upgrade");
-for (const path of ["server/dist/scripts/migrate.js", "server/dist/scripts/legacy-yandex-schema-manifest.json", "client/dist/index.html"]) {
+for (const path of ["server/dist/scripts/migrate.js", "server/dist/scripts/legacy-yandex-schema-manifest.js", "client/dist/index.html"]) {
   if (!existsSync(join(root, path))) throw new Error(`Missing runtime build artifact: ${path}`);
 }
-JSON.parse(readFileSync(join(root, "server/dist/scripts/legacy-yandex-schema-manifest.json"), "utf8"));
+
 const stage = join(output, "stage");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
