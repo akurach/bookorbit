@@ -10,21 +10,10 @@ import { createPostgresClientConfig } from '../db/postgres-connection-config';
 import { dropUnreleasedMigrationRows, reconcileMigrationLedgerTimestamps } from './migration-ledger-compatibility';
 import { installPostgresExtensions } from './postgres-extensions';
 import { prepareLegacySeriesIndexColumns } from './series-index-migration-compatibility';
-import { readLegacyYandexCatalog } from './legacy-yandex-schema';
+import { readLegacyYandexCatalog, legacyYandexCatalogsEqual } from './legacy-yandex-schema';
 import legacyYandexManifest from './legacy-yandex-schema-manifest';
 import { bridgeYandexMigrations } from './yandex-migration-compatibility';
 import { backfillYandexProviderIds } from './yandex-provider-id-backfill';
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 
 function resolveMigrationsFolder(): string {
   const candidates = [
@@ -67,7 +56,7 @@ async function runMigrations() {
     const migrationFiles = readMigrationFiles({ migrationsFolder });
     await bridgeYandexMigrations(lockClient, migrationFiles, async (client) => {
       const catalog = await readLegacyYandexCatalog(client);
-      if (canonicalJson(catalog) !== canonicalJson(legacyYandexManifest)) {
+      if (!legacyYandexCatalogsEqual(catalog, legacyYandexManifest)) {
         throw new Error('Legacy Yandex schema differs from the validated catalog manifest; refusing migration');
       }
     });

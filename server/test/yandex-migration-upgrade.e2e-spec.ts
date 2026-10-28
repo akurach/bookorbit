@@ -4,7 +4,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { Client, Pool } from 'pg';
 
 import manifest from '../src/scripts/legacy-yandex-schema-manifest';
-import { readLegacyYandexCatalog } from '../src/scripts/legacy-yandex-schema';
+import { readLegacyYandexCatalog, legacyYandexCatalogsEqual, normalizeLegacyYandexCatalog } from '../src/scripts/legacy-yandex-schema';
 import { installPostgresExtensions } from '../src/scripts/postgres-extensions';
 import { bridgeYandexMigrations, LEGACY_YANDEX_HASHES } from '../src/scripts/yandex-migration-compatibility';
 import { backfillYandexProviderIds } from '../src/scripts/yandex-provider-id-backfill';
@@ -14,7 +14,7 @@ const url = process.env.YANDEX_MIGRATION_TEST_DATABASE_URL ?? process.env.E2E_DA
 const migrations = readMigrationFiles({ migrationsFolder: join(process.cwd(), 'src/db/migrations') });
 const quoted = (value: string) => `"${value.replace(/"/g, '""')}"`;
 const validate = async (client: Parameters<typeof readLegacyYandexCatalog>[0]) => {
-  if (JSON.stringify(await readLegacyYandexCatalog(client)) !== JSON.stringify(manifest)) throw new Error('legacy catalog mismatch');
+  if (!legacyYandexCatalogsEqual(await readLegacyYandexCatalog(client), manifest)) throw new Error('legacy catalog mismatch');
 };
 
 async function apply(client: Client, entries: typeof migrations) {
@@ -49,14 +49,15 @@ async function apply(client: Client, entries: typeof migrations) {
 }
 
 async function normalizedSchema(client: Client) {
-  return (
-    await client.query(`
+  return normalizeLegacyYandexCatalog(
+    (
+      await client.query(`
     SELECT jsonb_build_object(
       'columns', (SELECT jsonb_agg(to_jsonb(c) ORDER BY table_name, column_name) FROM (
         SELECT table_name, column_name, data_type, udt_name, character_maximum_length, is_nullable, column_default
         FROM information_schema.columns WHERE table_schema = 'public') c),
       'constraints', (SELECT jsonb_agg(to_jsonb(c) ORDER BY table_name, name) FROM (
-        SELECT r.relname AS table_name, x.conname AS name, pg_get_constraintdef(x.oid, true) AS definition
+        SELECT r.relname AS table_name, x.conname AS name, x.contype AS type, pg_get_constraintdef(x.oid, true) AS definition
         FROM pg_constraint x JOIN pg_class r ON r.oid=x.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace
         WHERE n.nspname='public') c),
       'indexes', (SELECT jsonb_agg(to_jsonb(i) ORDER BY table_name, name) FROM (
@@ -65,7 +66,8 @@ async function normalizedSchema(client: Client) {
         JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public') i)
     ) AS schema
   `)
-  ).rows[0].schema;
+    ).rows[0].schema,
+  );
 }
 
 describe.skipIf(!url)('Yandex migration upgrade on disposable PostgreSQL', { timeout: 300_000 }, () => {
@@ -127,6 +129,19 @@ describe.skipIf(!url)('Yandex migration upgrade on disposable PostgreSQL', { tim
         );
         await expect(bridgeYandexMigrations(bridgeClient, conflicting, validate)).rejects.toThrow('provider ID conflicts');
         expect((await legacy.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations')).rows[0].count).toBe(113);
+        // Reproduce pg_dump/restore's deparse on all five enum CHECKs.
+        const scopes = new Set([
+          'books_catalog_media_kind_chk',
+          'external_book_sources_media_kind_chk',
+          'yandex_books_entries_media_chk',
+          'yandex_books_entries_policy_chk',
+          'yandex_books_entries_state_chk',
+        ]);
+        for (const constraint of manifest.constraints.filter((c) => scopes.has(c.name))) {
+          const restored = constraint.definition.replace(/::character varying(?=,|\])/g, '::character varying::text').replace(']::text[]', ']');
+          await legacy.query(`ALTER TABLE ${quoted(constraint.table_name)} DROP CONSTRAINT ${quoted(constraint.name)}`);
+          await legacy.query(`ALTER TABLE ${quoted(constraint.table_name)} ADD CONSTRAINT ${quoted(constraint.name)} ${restored}`);
+        }
         await expect(bridgeYandexMigrations(bridgeClient, migrations, validate)).resolves.toBe('bridged');
         expect((await legacy.query("SELECT external_id FROM book_provider_ids WHERE book_id=1 AND provider='yandexbooks'")).rows[0].external_id).toBe(
           'book-CaseSensitive',

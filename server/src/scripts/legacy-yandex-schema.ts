@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import manifest from './legacy-yandex-schema-manifest';
 
 /** Catalog-only query: no user records, tokens, sequence values, or database identifiers. */
 export const LEGACY_YANDEX_CATALOG_SQL = `
@@ -46,4 +47,60 @@ SELECT jsonb_build_object(
 export async function readLegacyYandexCatalog(client: Pick<PoolClient, 'query'>): Promise<unknown> {
   const result = await client.query<{ catalog: unknown }>(LEGACY_YANDEX_CATALOG_SQL);
   return result.rows[0].catalog;
+}
+
+// pg_dump/restore can push an ARRAY's varchar[] -> text[] cast down to each
+// literal. Only these exact legacy CHECKs have that known deparse equivalent.
+const restoredCheckScopes = new Set([
+  'books.books_catalog_media_kind_chk',
+  'external_book_sources.external_book_sources_media_kind_chk',
+  'yandex_books_entries.yandex_books_entries_media_chk',
+  'yandex_books_entries.yandex_books_entries_policy_chk',
+  'yandex_books_entries.yandex_books_entries_state_chk',
+]);
+
+const restoredChecks = new Map(
+  manifest.constraints
+    .filter((constraint) => constraint.type === 'c' && restoredCheckScopes.has(`${constraint.table_name}.${constraint.name}`))
+    .map((constraint) => [
+      `${constraint.table_name}.${constraint.name}`,
+      {
+        canonical: constraint.definition,
+        // Transform trusted manifest literals only; unknown catalog text is never rewritten.
+        restored: constraint.definition.replace(/::character varying(?=,|\])/g, '::character varying::text').replace(']::text[]', ']'),
+      },
+    ]),
+);
+
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function normalizeLegacyYandexCatalog(catalog: unknown): unknown {
+  if (!object(catalog) || !Array.isArray(catalog.constraints)) return catalog;
+  return {
+    ...catalog,
+    constraints: catalog.constraints.map((constraint: unknown) => {
+      if (!object(constraint) || constraint.type !== 'c') return constraint;
+      const key = `${String(constraint.table_name)}.${String(constraint.name)}`;
+      const expected = restoredChecks.get(key);
+      if (!expected || constraint.definition !== expected.restored) return constraint;
+      return { ...constraint, definition: expected.canonical };
+    }),
+  };
+}
+
+export function legacyYandexCatalogsEqual(actual: unknown, expected: unknown): boolean {
+  return canonicalJson(normalizeLegacyYandexCatalog(actual)) === canonicalJson(normalizeLegacyYandexCatalog(expected));
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (object(value)) {
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
