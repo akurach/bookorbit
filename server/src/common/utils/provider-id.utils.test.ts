@@ -27,8 +27,13 @@ describe('provider id bounds', () => {
     }
   });
 
-  it('covers every provider id column the metadata table declares', () => {
-    const declared = Object.keys(bookMetadata).filter((key) => /(Id)$/.test(key) && key !== 'bookId' && key !== 'seriesId');
+  it('covers every active provider id column the metadata table declares', () => {
+    // Kept only for the legacy migration bridge; Yandex uses book_provider_ids in 3.6.
+    expect(bookMetadata.yandexBooksId.length).toBe(255);
+    expect(FIELDS).not.toContain('yandexBooksId');
+    const declared = Object.keys(bookMetadata).filter(
+      (key) => /(Id)$/.test(key) && key !== 'bookId' && key !== 'seriesId' && key !== 'yandexBooksId',
+    );
     expect(new Set(declared)).toEqual(new Set(FIELDS));
   });
 });
